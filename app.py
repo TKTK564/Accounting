@@ -5,24 +5,21 @@ import pandas as pd
 import plotly.express as px
 from datetime import datetime
 
-# --- 1. 介面設定 (視覺化優化) ---
+# --- 1. 介面設定 ---
 st.set_page_config(page_title="個人財務戰情系統", layout="centered")
 st.markdown("""
     <style>
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
-    /* 分頁欄間距 */
     .stTabs [data-baseweb="tab-list"] { gap: 10px; }
-    /* 未選中的標籤樣式：改為深灰色，文字設為深灰 */
     .stTabs [data-baseweb="tab"] { 
         height: 50px; 
-        background-color: #dee2e6; /* 非選中狀態改為明顯的灰色 */
+        background-color: #dee2e6; 
         color: #495057; 
         border-radius: 5px; 
         padding: 10px; 
         border: 1px solid #ced4da;
     }
-    /* 選中後的標籤樣式：維持戰情藍 */
     .stTabs [aria-selected="true"] { 
         background-color: #007bff !important; 
         color: white !important; 
@@ -108,38 +105,83 @@ with tab_dash:
     else:
         df = pd.DataFrame(records)
         df['金額'] = pd.to_numeric(df['金額'], errors='coerce').fillna(0)
+        df['日期'] = pd.to_datetime(df['日期']).dt.date
         
         income_sum = df[df['類型'] == '收入']['金額'].sum()
         expense_sum = df[df['類型'] == '支出']['金額'].sum()
         balance = income_sum - expense_sum
         
-        # 數據校準後的顯示
         c1, c2, c3 = st.columns(3)
         c1.metric("💰 當前總資產", f"${balance:,.0f}")
         c2.metric("📈 累計總收入", f"${income_sum:,.0f}")
         c3.metric("📉 累計總支出", f"${expense_sum:,.0f}", delta=f"-{expense_sum:,.0f}", delta_color="inverse")
         
         st.markdown("---")
-        st.subheader("🔥 支出百分比分析 (圓餅圖)")
-        exp_df = df[df['類型'] == '支出']
-        if not exp_df.empty:
-            summary = exp_df.groupby('類別')['金額'].sum().reset_index()
-            # 圓餅圖邏輯
-            fig = px.pie(summary, values='金額', names='類別', hole=0.4, 
-                         color_discrete_sequence=px.colors.qualitative.Pastel)
-            fig.update_layout(showlegend=True)
+        
+        # 視覺化模式切換器
+        viz_mode = st.radio(
+            "選擇視覺化分析模式：", 
+            ["🔥 支出比例 (圓餅圖)", "🏦 資產分佈 (圓餅圖)", "📈 財務趨勢 (折線圖)"],
+            horizontal=True
+        )
+
+        if viz_mode == "🔥 支出比例 (圓餅圖)":
+            exp_df = df[df['類型'] == '支出']
+            if not exp_df.empty:
+                summary = exp_df.groupby('類別')['金額'].sum().reset_index()
+                fig = px.pie(summary, values='金額', names='類別', hole=0.4, title="各項支出佔比", color_discrete_sequence=px.colors.qualitative.Pastel)
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.write("目前無支出紀錄。")
+
+        elif viz_mode == "🏦 資產分佈 (圓餅圖)":
+            # 計算邏輯：(各類別轉帳總額) - (該類別支出總額)
+            trans_df = df[df['類型'] == '轉帳'].groupby('帳戶')['金額'].sum()
+            exp_sum_df = df[df['類型'] == '支出'].groupby('類別')['金額'].sum()
+            
+            asset_data = []
+            for pool in trans_df.index:
+                spent = exp_sum_df.get(pool, 0)
+                remaining = trans_df[pool] - spent
+                if remaining > 0:
+                    asset_data.append({"預算池": pool, "餘額": remaining})
+            
+            if asset_data:
+                asset_df = pd.DataFrame(asset_data)
+                fig = px.pie(asset_df, values='餘額', names='預算池', hole=0.4, title="各帳戶資產分佈", color_discrete_sequence=px.colors.sequential.Tealgrn)
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.write("目前尚無分配後的資產。")
+
+        elif viz_mode == "📈 財務趨勢 (折線圖)":
+            # 建立時間序列數據
+            trend_df = df.sort_values('日期')
+            # 每日加總
+            daily = trend_df.groupby(['日期', '類型'])['金額'].sum().unstack(fill_value=0).reset_index()
+            
+            # 如果缺項補 0
+            for col in ['收入', '支出']:
+                if col not in daily.columns:
+                    daily[col] = 0
+            
+            # 計算累計金額
+            daily['累計收入'] = daily['收入'].cumsum()
+            daily['累計支出'] = daily['支出'].cumsum()
+            daily['淨資產趨勢'] = daily['累計收入'] - daily['累計支出']
+            
+            fig = px.line(daily, x='日期', y=['累計收入', '累計支出', '淨資產趨勢'], 
+                          title="財務成長曲線",
+                          labels={'value': '金額', 'variable': '指標'},
+                          color_discrete_map={'累計收入': '#28a745', '累計支出': '#dc3545', '淨資產趨勢': '#007bff'})
             st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.write("目前沒有支出數據，趕快去記一筆吧！")
 
 # ------------------------------------------
-# 【分頁 2：收入分配】
+# 其餘分頁 (維持原本代碼邏輯)
 # ------------------------------------------
 with tab_income:
     st.header("📥 資金匯入與預算自動化")
     inc_amt = st.number_input("本次進帳金額", min_value=0, value=0, step=1000)
     inc_note = st.text_input("資金來源備註", value="本薪/獎學金")
-    
     st.markdown("##### 📍 當前分配比例設定")
     total_p = 0
     temp_budget = []
@@ -164,9 +206,6 @@ with tab_income:
             st.balloons()
             st.success("資料已寫入！")
 
-# ------------------------------------------
-# 【分頁 3：日常支出】
-# ------------------------------------------
 with tab_expense:
     st.header("💸 支出登錄")
     with st.container(border=True):
@@ -181,9 +220,6 @@ with tab_expense:
             else:
                 st.warning("請輸入正確金額")
 
-# ------------------------------------------
-# 【分頁 4：類別設定】
-# ------------------------------------------
 with tab_setting:
     st.header("⚙️ 系統類別設定")
     col1, col2 = st.columns(2)
