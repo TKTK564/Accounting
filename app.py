@@ -94,7 +94,6 @@ with colA: st.title(f"🛠️ {st.session_state.username} 的財務戰略中心"
 with colB: 
     if st.button("登出 👋"): st.session_state.logged_in = False; st.rerun()
 
-# 恢復完整 6 大分頁
 tabs = st.tabs(["📊 戰情看板", "📥 收入分配", "💸 支出登錄", "🔄 自動扣款", "📁 數據管理", "⚙️ 設定中心"])
 
 # ------------------------------------------
@@ -115,7 +114,6 @@ with tabs[0]:
         selected_month = st.selectbox("📅 選擇觀測月份：", available_months)
         m_df = df[df['年月'] == selected_month].copy()
         
-        # 名稱更改為：預算剩餘
         mode = st.radio("監控模式：", 
                         ["📉 每日流水趨勢", "💰 月份收入來源", "💸 月份支出分佈", "🏦 預算剩餘", "🎯 預算上限監控"], 
                         horizontal=True)
@@ -216,7 +214,7 @@ with tabs[2]:
                 st.rerun()
 
 # ------------------------------------------
-# 【Tab 4：自動扣款 (雙週期系統)】
+# 【Tab 4：自動扣款】
 # ------------------------------------------
 with tabs[3]:
     st.header("🔄 定期自動扣款系統")
@@ -228,7 +226,6 @@ with tabs[3]:
     curr_m = today_dt.month
     curr_d = today_dt.day
     
-    # 抓取這個月與今年已經扣款的紀錄
     deducted_this_month = []
     deducted_this_year = []
     if not df.empty:
@@ -242,7 +239,6 @@ with tabs[3]:
         st.subheader("📋 目前的扣款設定")
         st.dataframe(rec_df)
         
-        # 取得欄位名稱以防相容性問題
         time_col = rec_df.columns[4]
         cycle_col = rec_df.columns[5] if len(rec_df.columns) > 5 else None
         
@@ -258,11 +254,9 @@ with tabs[3]:
                     t_m, t_d = int(m_str), int(d_str)
                 except: t_m, t_d = 1, 1
                 
-                # 如果已經到了或過了扣款月份/日期，且今年還沒扣過
                 if (curr_m > t_m) or (curr_m == t_m and curr_d >= t_d):
                     if item_tag not in deducted_this_year: is_pending = True
             else:
-                # 每月邏輯
                 try: t_d = int(float(time_val))
                 except: t_d = 1
                 if curr_d >= t_d and item_tag not in deducted_this_month: is_pending = True
@@ -330,7 +324,7 @@ with tabs[4]:
             st.rerun()
 
 # ------------------------------------------
-# 【Tab 6：設定中心】
+# 【Tab 6：設定中心 (加入財政部捷徑)】
 # ------------------------------------------
 with tabs[5]:
     st.header("⚙️ 系統核心設定")
@@ -347,7 +341,9 @@ with tabs[5]:
                 new_c.append({"池名": n, "上限模式": m, "上限值": v})
         st.session_state.pool_configs = new_c
         ap = st.text_input("新增預算池..."); 
-        if st.button("➕ 新增池"): st.session_state.pool_configs.append({"池名": ap, "上限模式": "百分比", "上限值": 0}); st.rerun()
+        if st.button("➕ 新增池"): 
+            st.session_state.pool_configs.append({"池名": ap, "上限模式": "百分比", "上限值": 0})
+            st.toast("✅ 預算池新增成功！", icon="🏦"); st.rerun()
     
     with c2:
         st.subheader("🛠️ 支出類別")
@@ -356,11 +352,21 @@ with tabs[5]:
             col1.write(f"🔹 {ex}")
             if col2.button("刪除", key=f"ed_{i}"): st.session_state.expense_cats.pop(i); st.rerun()
         ne = st.text_input("新增類別..."); 
-        if st.button("➕ 新增項"): st.session_state.expense_cats.append(ne); st.rerun()
+        if st.button("➕ 新增項"): 
+            st.session_state.expense_cats.append(ne)
+            st.toast("✅ 類別新增成功！", icon="🏷️"); st.rerun()
 
     st.markdown("---")
     st.subheader("📡 財政部載具 API 設定區 (準備中)")
-    st.write("此處預留給電子發票串接，請先至財政部申請 API 金鑰後再行填寫。")
+    st.write("要讓發票自動匯入，請先確認您的載具驗證碼，並申請 API 金鑰。您可點擊下方按鈕前往財政部平台處理。")
+    
+    # 建立快捷通道按鈕
+    link_c1, link_c2 = st.columns(2)
+    with link_c1:
+        st.link_button("🔗 忘記驗證碼？前往重設 (點選忘記驗證碼)", "https://www.einvoice.nat.gov.tw/APCONSUMER/BTC501W/")
+    with link_c2:
+        st.link_button("🔗 申請發票 API (AppID) 頁面", "https://www.einvoice.nat.gov.tw/APMEMBERVAN/XcaAppId/XcaAppId010W_UI")
+
     with st.container(border=True):
         st.text_input("手機條碼 (CardNo)", placeholder="/XXXXXXX")
         st.text_input("驗證碼 (CardEncrypt)", type="password")
