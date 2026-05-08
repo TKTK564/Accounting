@@ -235,37 +235,54 @@ with tabs[3]:
         st.write("目前沒有紀錄可管理")
 
 # ------------------------------------------
-# 【Tab 5：類別設定】
+# 【Tab 5：類別設定 (修正版)】
 # ------------------------------------------
 with tabs[4]:
-    # (此處維持之前的類別管理邏輯)
-    c1, c2 = st.columns(2)
-    with c1:
+    st.header("⚙️ 系統類別設定")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
         st.subheader("🛠️ 預算池管理")
-        new_b_cats = []
+        # 這裡統一名稱為 new_budget_cats
+        new_budget_cats = [] 
         for i, b in enumerate(st.session_state.budget_cats):
             ca1, ca2 = st.columns([3, 1])
-            with ca1: n = st.text_input(f"池-{i}", value=b['類別'], label_visibility="collapsed")
+            with ca1: 
+                # 類別名稱修改
+                n = st.text_input(f"池-{i}", value=b['類別'], label_visibility="collapsed", key=f"cat_n_{i}")
             with ca2:
                 if st.button("🗑️", key=f"db_{i}"):
                     st.session_state.budget_cats.pop(i)
                     st.rerun()
-            p = st.number_input(f"比例-{i}", value=b['百分比'], key=f"bp_{i}", min_value=0, max_value=100)
-            new_b_cats.append({"類別": n, "百分比": p})
+            # 比例修改
+            p = st.number_input(f"比例-{i}", value=b['百分比'], key=f"bp_{i}", min_value=0, max_value=100, label_visibility="collapsed")
+            new_budget_cats.append({"類別": n, "百分比": p})
+        
+        # 關鍵點：賦值時名稱必須一致
         st.session_state.budget_cats = new_budget_cats
+        
+        st.markdown("---")
+        add_b = st.text_input("新增預算池名稱...", key="add_new_b")
         if st.button("➕ 新增預算池"):
-            st.session_state.budget_cats.append({"類別": "新類別", "百分比": 0})
-            st.rerun()
-    with c2:
+            if add_b:
+                st.session_state.budget_cats.append({"類別": add_b, "百分比": 0})
+                st.rerun()
+
+    with col2:
         st.subheader("🛠️ 支出類別管理")
+        # 顯示並刪除支出類別
         for i, e in enumerate(st.session_state.expense_cats):
             ca1, ca2 = st.columns([3, 1])
-            with ca1: st.write(e)
+            with ca1: st.write(f"🔹 {e}")
             with ca2:
                 if st.button("🗑️", key=f"de_{i}"):
                     st.session_state.expense_cats.pop(i)
                     st.rerun()
-        new_e = st.text_input("新增支出項目...")
-        if st.button("➕ 新增項目"):
-            st.session_state.expense_cats.append(new_e)
-            st.rerun()
+        
+        st.markdown("---")
+        add_e = st.text_input("新增支出項目類別...", key="add_new_e")
+        if st.button("➕ 新增支出項目"):
+            if add_e:
+                st.session_state.expense_cats.append(add_e)
+                st.rerun()
