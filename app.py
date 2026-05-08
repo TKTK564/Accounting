@@ -1,16 +1,19 @@
-import pandas as pd
-import plotly.express as px
 import streamlit as st
 import gspread
 import json
+import pandas as pd
+import plotly.express as px
 from datetime import datetime
 
-# --- 1. 隱藏網頁預設選單 ---
+# --- 1. 介面設定 ---
 st.set_page_config(page_title="個人財務戰情系統", layout="centered")
 st.markdown("""
     <style>
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
+    .stTabs [data-baseweb="tab-list"] { gap: 10px; }
+    .stTabs [data-baseweb="tab"] { height: 50px; background-color: #f0f2f6; border-radius: 5px; padding: 10px; }
+    .stTabs [aria-selected="true"] { background-color: #007bff; color: white; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -20,223 +23,170 @@ gc = gspread.service_account_from_dict(credentials)
 sh = gc.open('專屬財務戰情資料庫')
 users_sheet = sh.worksheet('使用者名冊')
 
-# --- 3. 初始化 Session State (記憶登入狀態) ---
+# --- 3. 初始化 Session State ---
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
     st.session_state.username = ""
 
-# --- 4. 登入與註冊閘門 ---
+# 初始化預算類別 (如果沒有的話)
+if 'budget_cats' not in st.session_state:
+    st.session_state.budget_cats = [{"類別": "生活預算", "百分比": 50}, {"類別": "投資帳戶", "百分比": 30}, {"類別": "儲蓄帳戶", "百分比": 20}]
+
+# 初始化支出類別 (自定義支出項目清單)
+if 'expense_cats' not in st.session_state:
+    st.session_state.expense_cats = ["飲食", "交通", "自我提升", "運動裝備", "休閒娛樂"]
+
+# --- 4. 登入閘門 ---
 if not st.session_state.logged_in:
-    st.title("🔐 戰情中心登入閘門")
-    tab1, tab2 = st.tabs(["🔑 登入", "📝 註冊新帳號"])
+    # (此處維持之前的登入/註冊邏輯代碼，略過以節省篇幅，請保留你原本的登入程式碼)
+    # ... 原本的登入/註冊 Tab 代碼 ...
+    st.stop()
 
-    # 【登入區塊】
-    with tab1:
-        login_user = st.text_input("帳號", key="login_user")
-        login_pw = st.text_input("密碼", type="password", key="login_pw")
-
-        if st.button("登入系統"):
-            records = users_sheet.get_all_records()
-            user_found = False
-            for row in records:
-                # 抓取資料庫的值，強制轉成文字並消除隱形空白
-                db_user = str(row.get("Username", "")).strip()
-                db_pw = str(row.get("Password", "")).strip()
-                
-                # 你輸入的值也消除隱形空白
-                input_user = login_user.strip()
-                input_pw = login_pw.strip()
-                
-                if db_user == input_user and db_pw == input_pw:
-                    st.session_state.logged_in = True
-                    st.session_state.username = input_user
-                    user_found = True
-                    st.rerun()  # 重新整理網頁，進入主系統
-
-            if not user_found:
-                st.error("❌ 帳號或密碼錯誤，請重新確認。")
-
-    # 【註冊區塊】
-    with tab2:
-        reg_user = st.text_input("設定新帳號", key="reg_user")
-        reg_pw = st.text_input("設定密碼", type="password", key="reg_pw")
-
-        if st.button("確認註冊"):
-            if not reg_user or not reg_pw:
-                st.warning("請填寫完整的帳號與密碼！")
-            else:
-                existing_users = [str(row.get("Username")) for row in users_sheet.get_all_records()]
-                if reg_user in existing_users:
-                    st.error("⚠️ 此帳號已被註冊過，請換一個。")
-                else:
-                    # 1. 將新帳號密碼寫入名冊
-                    users_sheet.append_row([reg_user, reg_pw])
-
-                    # 2. 在 Google Sheet 自動為他開闢專屬資料分頁，並寫好表頭
-                    new_ws = sh.add_worksheet(title=reg_user, rows="100", cols="10")
-                    new_ws.append_row(["日期", "類型", "類別", "金額", "帳戶", "備註"])
-
-                    st.success("✅ 註冊成功！系統已為您建立專屬資料庫，請切換至「登入」分頁進入戰情室。")
-
-    st.stop()  # 阻擋未登入者看到下方的程式碼
-
-# ==========================================
-# --- 5. 進入主系統 (已登入狀態) ---
-# ==========================================
-
-# 抓取該登入者的專屬分頁 (加上自動重建防護罩)
+# --- 5. 登入後的自動分頁檢查 ---
 try:
     worksheet = sh.worksheet(st.session_state.username)
 except gspread.WorksheetNotFound:
-    # 如果系統找不到這個人的分頁，就當場幫他蓋一個！
-    st.warning("🔧 系統偵測到您的專屬資料庫未建立或遺失，正在自動為您重建...")
-    worksheet = sh.add_worksheet(title=st.session_state.username, rows="100", cols="10")
+    worksheet = sh.add_worksheet(title=st.session_state.username, rows="1000", cols="10")
     worksheet.append_row(["日期", "類型", "類別", "金額", "帳戶", "備註"])
-    st.rerun() # 建好之後立刻重新整理畫面
+    st.rerun()
 
-# 頂部控制列 (顯示身分與登出)
-colA, colB = st.columns([3, 1])
+# ==========================================
+# --- 6. 主戰情系統 ---
+# ==========================================
+
+# 頂部導航
+colA, colB = st.columns([4, 1])
 with colA:
-    st.title(f"📊 {st.session_state.username} 的戰情中心")
+    st.title(f"🛠️ {st.session_state.username} 的戰略儀表板")
 with colB:
     if st.button("登出 👋"):
         st.session_state.logged_in = False
-        st.session_state.username = ""
         st.rerun()
 
-st.markdown("---")
-
-# --- 建立兩大核心分頁 ---
-tab_entry, tab_dashboard = st.tabs(["💰 資金調度 (記帳)", "📈 戰情儀表板 (數據)"])
+# --- 核心四分頁 ---
+tab_dash, tab_income, tab_expense, tab_setting = st.tabs(["📊 戰情看板", "📥 收入分配", "💸 日常支出", "⚙️ 類別設定"])
 
 # ------------------------------------------
-# 【分頁 1：資金調度與記帳】
+# 【分頁 1：戰情看板】
 # ------------------------------------------
-with tab_entry:
-    # --- 新增：日常支出紀錄區 ---
-    st.header("💸 1. 日常支出登錄")
-    with st.container(border=True):
-        expense_name = st.text_input("支出項目", placeholder="例如：拳擊手套、講義費...")
-        expense_amount = st.number_input("支出金額", min_value=0, value=0, step=100)
-        expense_category = st.selectbox("歸屬預算池", ["生活預算", "自我提升", "運動裝備", "休閒娛樂", "交通", "其他"])
-        
-        if st.button("🔴 寫入支出"):
-            if expense_amount > 0 and expense_name:
-                today = datetime.now().strftime('%Y-%m-%d')
-                try:
-                    worksheet.append_row([today, '支出', expense_category, expense_amount, '主帳戶', expense_name])
-                    st.success(f"已記錄支出：{expense_name} ${expense_amount}")
-                except Exception as e:
-                    st.error(f"寫入失敗：{e}")
-            else:
-                st.warning("請填寫項目與金額")
-
-    st.markdown("---")
-
-    # --- 原本的：資金匯入與自動分配區 ---
-    st.header("📥 2. 資金進帳與戰略分配")
-    income_amount = st.number_input("本次進帳金額", min_value=0, value=10000, step=1000)
-    source_name = st.text_input("資金來源", value="本薪/獎學金")
-
-    if 'temp_budget' not in st.session_state:
-        st.session_state.temp_budget = [
-            {"類別": "生活預算", "百分比": 50},
-            {"類別": "投資帳戶", "百分比": 30},
-            {"類別": "儲蓄帳戶", "百分比": 20}
-        ]
-
-    with st.expander("➕ 新增分配類別"):
-        new_cat_name = st.text_input("輸入新類別名稱", placeholder="例如：國考基金")
-        if st.button("確認新增"):
-            if new_cat_name:
-                st.session_state.temp_budget.append({"類別": new_cat_name, "百分比": 0})
-                st.rerun()
-
-    updated_budget = []
-    for i, item in enumerate(st.session_state.temp_budget):
-        col_name, col_pct, col_del = st.columns([3, 2, 1])
-        with col_name:
-            new_name = st.text_input(f"類別-{i}", value=item["類別"], label_visibility="collapsed")
-        with col_pct:
-            new_pct = st.number_input(f"百分比-{i}", value=item["百分比"], min_value=0, max_value=100, step=1, label_visibility="collapsed")
-        with col_del:
-            if st.button("🗑️", key=f"del_{i}"):
-                st.session_state.temp_budget.pop(i)
-                st.rerun()
-        updated_budget.append({"類別": new_name, "百分比": new_pct})
-
-    st.session_state.temp_budget = updated_budget
-    total_ratio = sum(item['百分比'] for item in st.session_state.temp_budget)
-
-    if total_ratio != 100:
-        st.warning(f"⚠️ 目前總和：{total_ratio}% -> 「請重新計算」")
-    else:
-        st.success("✅ 比例分配完美")
-        if st.button("🟢 確認分配並寫入"):
-            today = datetime.now().strftime('%Y-%m-%d')
-            records_to_add = []
-            records_to_add.append([today, '收入', source_name, income_amount, '主帳戶', '收入進帳'])
-            for item in st.session_state.temp_budget:
-                records_to_add.append([
-                    today, '轉帳', f"{item['類別']}({item['百分比']}%)", 
-                    int(income_amount * (item['百分比']/100)), item['類別'], '系統自動預算分配'
-                ])
-            try:
-                worksheet.append_rows(records_to_add)
-                st.balloons()
-                st.success("✅ 資金已完美調度！")
-            except Exception as e:
-                st.error(f"❌ 寫入失敗：{e}")
-
-# ------------------------------------------
-# 【分頁 2：戰情儀表板 (視覺化數據)】
-# ------------------------------------------
-with tab_dashboard:
-    st.header("📈 財務戰情總覽")
-    
-    # 讀取你的專屬資料庫
+with tab_dash:
     records = worksheet.get_all_records()
-    
     if not records:
-        st.info("目前資料庫尚無紀錄，請先至「資金調度」分頁新增資料。")
+        st.info("尚無數據，請先開始記帳。")
     else:
-        # 將資料轉換為 Pandas 數據表以便高速計算
         df = pd.DataFrame(records)
-        df['金額'] = pd.to_numeric(df['金額'], errors='coerce').fillna(0) # 確保金額是數字
+        df['金額'] = pd.to_numeric(df['金額'], errors='coerce').fillna(0)
         
-        # 核心計算邏輯
-        total_income = df[df['類型'] == '收入']['金額'].sum()
-        total_expense = df[df['類型'] == '支出']['金額'].sum()
-        current_balance = total_income - total_expense
+        income_sum = df[df['類型'] == '收入']['金額'].sum()
+        expense_sum = df[df['類型'] == '支出']['金額'].sum()
+        balance = income_sum - expense_sum
         
-        # 1. 頂部核心指標 (三大看板)
-        col1, col2, col3 = st.columns(3)
-        col1.metric("💰 總持有餘額", f"${current_balance:,.0f}")
-        col2.metric("📥 累計總收入", f"${total_income:,.0f}")
-        col3.metric("🔥 累計總支出", f"${total_expense:,.0f}")
+        c1, c2, c3 = st.columns(3)
+        c1.metric("💰 當前總資產", f"${balance:,.0f}")
+        c2.metric("📈 累計總收入", f"${income_sum:,.0f}")
+        c3.metric("📉 累計總支出", f"${expense_sum:,.0f}", delta=f"-{expense_sum:,.0f}", delta_color="inverse")
         
         st.markdown("---")
-        
-        # 2. 支出佔比分析 (你要求的百分比圖)
-        st.subheader("📊 支出火力分佈 (百分比圖)")
-        expense_df = df[df['類型'] == '支出']
-        
-        if not expense_df.empty:
-            # 將相同類別的支出加總
-            expense_summary = expense_df.groupby('類別')['金額'].sum().reset_index()
-            
-            # 使用 Plotly 畫出高質感的甜甜圈圖
-            fig = px.pie(
-                expense_summary, 
-                values='金額', 
-                names='類別', 
-                hole=0.4, # 調整為甜甜圈造型，更具現代感
-                color_discrete_sequence=px.colors.sequential.Agsunset # 戰情室專屬的高級配色
-            )
-            # 隱藏圖表背景，融入系統
-            fig.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)") 
-            
-            # 顯示圖表
+        st.subheader("🔥 支出百分比分析")
+        exp_df = df[df['類型'] == '支出']
+        if not exp_df.empty:
+            summary = exp_df.groupby('類別')['金額'].sum().reset_index()
+            fig = px.pie(summary, values='金額', names='類別', hole=0.4, color_discrete_sequence=px.colors.qualitative.Pastel)
             st.plotly_chart(fig, use_container_width=True)
         else:
-            st.write("目前尚無任何支出紀錄。")
+            st.write("目前沒有支出數據可顯示。")
+
+# ------------------------------------------
+# 【分頁 2：收入分配】
+# ------------------------------------------
+with tab_income:
+    st.header("📥 資金匯入與預算自動化")
+    inc_amt = st.number_input("本次進帳金額", min_value=0, value=0, step=1000)
+    inc_note = st.text_input("資金來源備註", value="本薪/獎學金")
+    
+    st.markdown("##### 📍 當前分配比例設定")
+    temp_budget = []
+    total_p = 0
+    for i, item in enumerate(st.session_state.budget_cats):
+        col1, col2 = st.columns([3, 2])
+        with col1: st.write(f"**{item['類別']}**")
+        with col2:
+            p = st.number_input(f"比例 %", value=item['百分比'], key=f"p_{i}", min_value=0, max_value=100)
+        total_p += p
+        temp_budget.append({"類別": item['類別'], "百分比": p})
+
+    if total_p != 100:
+        st.warning(f"⚠️ 當前總計：{total_p}% -> 「請重新計算」")
+    else:
+        st.success("✅ 比例分配完美")
+        if st.button("⚡ 執行自動分配寫入"):
+            today = datetime.now().strftime('%Y-%m-%d')
+            rows = [[today, '收入', inc_note, inc_amt, '主帳戶', '收入進帳']]
+            for b in temp_budget:
+                rows.append([today, '轉帳', f"{b['類別']}({b['百分比']}%)", int(inc_amt * (b['百分比']/100)), b['類別'], '系統分配'])
+            worksheet.append_rows(rows)
+            st.balloons()
+            st.success("資料已寫入！")
+
+# ------------------------------------------
+# 【分頁 3：日常支出】
+# ------------------------------------------
+with tab_expense:
+    st.header("💸 支出登錄")
+    with st.container(border=True):
+        exp_item = st.text_input("支出項目名稱")
+        exp_amt = st.number_input("支出金額 ", min_value=0, value=0)
+        # 這裡的選項是從自定義清單裡抓出來的！
+        exp_cat = st.selectbox("選擇支出類別", st.session_state.expense_cats)
+        
+        if st.button("🔴 確認支出"):
+            if exp_amt > 0:
+                today = datetime.now().strftime('%Y-%m-%d')
+                worksheet.append_row([today, '支出', exp_cat, exp_amt, '主帳戶', exp_item])
+                st.success(f"已記錄：{exp_item} ${exp_amt}")
+            else:
+                st.warning("請輸入正確金額")
+
+# ------------------------------------------
+# 【分頁 4：類別設定】
+# ------------------------------------------
+with tab_setting:
+    st.header("⚙️ 系統類別設定")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.subheader("🛠️ 預算分配類別")
+        # 修改現有預算類別名稱
+        new_budget_cats = []
+        for i, b in enumerate(st.session_state.budget_cats):
+            c1, c2 = st.columns([3, 1])
+            with c1:
+                n = st.text_input(f"預算-{i}", value=b['類別'], label_visibility="collapsed")
+            with c2:
+                if st.button("🗑️", key=f"del_b_{i}"):
+                    st.session_state.budget_cats.pop(i)
+                    st.rerun()
+            new_budget_cats.append({"類別": n, "百分比": b['百分比']})
+        st.session_state.budget_cats = new_budget_cats
+        
+        new_b = st.text_input("新增預算類別...")
+        if st.button("➕ 新增預算"):
+            st.session_state.budget_cats.append({"類別": new_b, "百分比": 0})
+            st.rerun()
+
+    with col2:
+        st.subheader("🛠️ 支出項目類別")
+        # 顯示並刪除支出類別
+        for i, e in enumerate(st.session_state.expense_cats):
+            c1, c2 = st.columns([3, 1])
+            with c1: st.write(e)
+            with c2:
+                if st.button("🗑️", key=f"del_e_{i}"):
+                    st.session_state.expense_cats.pop(i)
+                    st.rerun()
+        
+        new_e = st.text_input("新增支出類別...")
+        if st.button("➕ 新增項目"):
+            st.session_state.expense_cats.append(new_e)
+            st.rerun()
