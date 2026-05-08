@@ -84,8 +84,15 @@ if not st.session_state.logged_in:
 # --- 5. 進入主系統 (已登入狀態) ---
 # ==========================================
 
-# 抓取該登入者的專屬分頁
-worksheet = sh.worksheet(st.session_state.username)
+# 抓取該登入者的專屬分頁 (加上自動重建防護罩)
+try:
+    worksheet = sh.worksheet(st.session_state.username)
+except gspread.WorksheetNotFound:
+    # 如果系統找不到這個人的分頁，就當場幫他蓋一個！
+    st.warning("🔧 系統偵測到您的專屬資料庫未建立或遺失，正在自動為您重建...")
+    worksheet = sh.add_worksheet(title=st.session_state.username, rows="100", cols="10")
+    worksheet.append_row(["日期", "類型", "類別", "金額", "帳戶", "備註"])
+    st.rerun() # 建好之後立刻重新整理畫面
 
 # 頂部控制列 (顯示身分與登出)
 colA, colB = st.columns([3, 1])
