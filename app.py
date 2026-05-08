@@ -3,9 +3,10 @@ import gspread
 import json
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 from datetime import datetime
 
-# --- 1. 介面設定 ---
+# --- 1. 介面設定 (強化分頁顏色) ---
 st.set_page_config(page_title="個人財務戰情系統", layout="centered")
 st.markdown("""
     <style>
@@ -14,14 +15,14 @@ st.markdown("""
     .stTabs [data-baseweb="tab-list"] { gap: 10px; }
     .stTabs [data-baseweb="tab"] { 
         height: 50px; 
-        background-color: #dee2e6; 
+        background-color: #dee2e6; /* 沒選中時的深灰色 */
         color: #495057; 
         border-radius: 5px; 
         padding: 10px; 
         border: 1px solid #ced4da;
     }
     .stTabs [aria-selected="true"] { 
-        background-color: #007bff !important; 
+        background-color: #007bff !important; /* 選中時的戰情藍 */
         color: white !important; 
         font-weight: bold;
     }
@@ -118,65 +119,52 @@ with tab_dash:
         
         st.markdown("---")
         
-        # 視覺化模式切換器
-        viz_mode = st.radio(
-            "選擇視覺化分析模式：", 
-            ["🔥 支出比例 (圓餅圖)", "🏦 資產分佈 (圓餅圖)", "📈 財務趨勢 (折線圖)"],
-            horizontal=True
-        )
+        viz_mode = st.radio("選擇視覺化分析模式：", ["🔥 支出項目比例", "🏦 各預算池餘額", "📉 每日流水趨勢"], horizontal=True)
 
-        if viz_mode == "🔥 支出比例 (圓餅圖)":
+        if viz_mode == "🔥 支出項目比例":
             exp_df = df[df['類型'] == '支出']
             if not exp_df.empty:
                 summary = exp_df.groupby('類別')['金額'].sum().reset_index()
-                fig = px.pie(summary, values='金額', names='類別', hole=0.4, title="各項支出佔比", color_discrete_sequence=px.colors.qualitative.Pastel)
+                fig = px.pie(summary, values='金額', names='類別', hole=0.4, title="支出類別佔比", color_discrete_sequence=px.colors.qualitative.Pastel)
                 st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.write("目前無支出紀錄。")
+            else: st.write("目前無支出紀錄。")
 
-        elif viz_mode == "🏦 資產分佈 (圓餅圖)":
-            # 計算邏輯：(各類別轉帳總額) - (該類別支出總額)
-            trans_df = df[df['類型'] == '轉帳'].groupby('帳戶')['金額'].sum()
-            exp_sum_df = df[df['類型'] == '支出'].groupby('類別')['金額'].sum()
+        elif viz_mode == "🏦 各預算池餘額":
+            # 核心邏輯：該類別的「總轉入金額」減去「總支出金額」
+            trans_sum = df[df['類型'] == '轉帳'].groupby('帳戶')['金額'].sum()
+            exp_sum = df[df['類型'] == '支出'].groupby('類別')['金額'].sum()
             
             asset_data = []
-            for pool in trans_df.index:
-                spent = exp_sum_df.get(pool, 0)
-                remaining = trans_df[pool] - spent
+            for pool in trans_sum.index:
+                remaining = trans_sum[pool] - exp_sum.get(pool, 0)
                 if remaining > 0:
-                    asset_data.append({"預算池": pool, "餘額": remaining})
+                    asset_data.append({"預算池": pool, "當前餘額": remaining})
             
             if asset_data:
                 asset_df = pd.DataFrame(asset_data)
-                fig = px.pie(asset_df, values='餘額', names='預算池', hole=0.4, title="各帳戶資產分佈", color_discrete_sequence=px.colors.sequential.Tealgrn)
+                fig = px.pie(asset_df, values='當前餘額', names='預算池', hole=0.4, title="目前資產存放在哪？", color_discrete_sequence=px.colors.sequential.Tealgrn)
                 st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.write("目前尚無分配後的資產。")
+            else: st.write("目前尚無分配後的資產。")
 
-        elif viz_mode == "📈 財務趨勢 (折線圖)":
-            # 建立時間序列數據
-            trend_df = df.sort_values('日期')
-            # 每日加總
-            daily = trend_df.groupby(['日期', '類型'])['金額'].sum().unstack(fill_value=0).reset_index()
+        elif viz_mode == "📉 每日流水趨勢":
+            # 建立每日收入與支出（支出轉負數）
+            daily = df.copy()
+            daily.loc[daily['類型'] == '支出', '金額'] = -daily['金額']
+            # 只篩選收入與支出，排除掉轉帳（避免重複計算）
+            daily_flow = daily[daily['類型'].isin(['收入', '支出'])]
+            daily_summary = daily_flow.groupby('日期')['金額'].sum().reset_index()
             
-            # 如果缺項補 0
-            for col in ['收入', '支出']:
-                if col not in daily.columns:
-                    daily[col] = 0
+            fig = go.Figure()
+            # 繪製每日淨流量折線圖
+            fig.add_trace(go.Scatter(x=daily_summary['日期'], y=daily_summary['金額'], mode='lines+markers', name='每日淨流量', line=dict(color='#007bff', width=3)))
+            # 加上零基準線
+            fig.add_hline(y=0, line_dash="dash", line_color="red", annotation_text="盈虧平衡線")
             
-            # 計算累計金額
-            daily['累計收入'] = daily['收入'].cumsum()
-            daily['累計支出'] = daily['支出'].cumsum()
-            daily['淨資產趨勢'] = daily['累計收入'] - daily['累計支出']
-            
-            fig = px.line(daily, x='日期', y=['累計收入', '累計支出', '淨資產趨勢'], 
-                          title="財務成長曲線",
-                          labels={'value': '金額', 'variable': '指標'},
-                          color_discrete_map={'累計收入': '#28a745', '累計支出': '#dc3545', '淨資產趨勢': '#007bff'})
+            fig.update_layout(title="每日交易金額 (正數為進帳 / 負數為支出)", xaxis_title="日期", yaxis_title="金額", hovermode="x unified")
             st.plotly_chart(fig, use_container_width=True)
 
 # ------------------------------------------
-# 其餘分頁 (維持原本代碼邏輯)
+# 其餘分頁 (維持原本邏輯)
 # ------------------------------------------
 with tab_income:
     st.header("📥 資金匯入與預算自動化")
@@ -199,7 +187,7 @@ with tab_income:
         st.success("✅ 比例分配完美")
         if st.button("⚡ 執行自動分配寫入"):
             today = datetime.now().strftime('%Y-%m-%d')
-            rows = [[today, '收入', inc_note, inc_amt, '主帳戶', '收入進帳']]
+            rows = [[today, '收入', inc_note, inc_amt, '主帳戶', inc_note]]
             for b in temp_budget:
                 rows.append([today, '轉帳', f"{b['類別']}({b['百分比']}%)", int(inc_amt * (b['百分比']/100)), b['類別'], '系統分配'])
             worksheet.append_rows(rows)
@@ -211,14 +199,13 @@ with tab_expense:
     with st.container(border=True):
         exp_item = st.text_input("支出項目名稱")
         exp_amt = st.number_input("支出金額", min_value=0, value=0)
-        exp_cat = st.selectbox("選擇支出類別", st.session_state.expense_cats)
+        exp_cat = st.selectbox("選擇支出帳戶 (從哪個預算池扣錢)", [c['類別'] for c in st.session_state.budget_cats] + st.session_state.expense_cats)
         if st.button("🔴 確認支出"):
             if exp_amt > 0:
                 today = datetime.now().strftime('%Y-%m-%d')
                 worksheet.append_row([today, '支出', exp_cat, exp_amt, '主帳戶', exp_item])
                 st.success(f"已記錄：{exp_item} ${exp_amt}")
-            else:
-                st.warning("請輸入正確金額")
+            else: st.warning("請輸入正確金額")
 
 with tab_setting:
     st.header("⚙️ 系統類別設定")
@@ -228,8 +215,7 @@ with tab_setting:
         new_budget_cats = []
         for i, b in enumerate(st.session_state.budget_cats):
             c1, c2 = st.columns([3, 1])
-            with c1:
-                n = st.text_input(f"預算-{i}", value=b['類別'], label_visibility="collapsed")
+            with c1: n = st.text_input(f"預算-{i}", value=b['類別'], label_visibility="collapsed")
             with c2:
                 if st.button("🗑️", key=f"del_b_{i}"):
                     st.session_state.budget_cats.pop(i)
@@ -241,7 +227,7 @@ with tab_setting:
             st.session_state.budget_cats.append({"類別": new_b, "百分比": 0})
             st.rerun()
     with col2:
-        st.subheader("🛠️ 支出項目類別")
+        st.subheader("🛠️ 支出細項類別")
         for i, e in enumerate(st.session_state.expense_cats):
             c1, c2 = st.columns([3, 1])
             with c1: st.write(e)
