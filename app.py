@@ -94,69 +94,74 @@ st.header("1. 資金匯入")
 income_amount = st.number_input("請輸入本次進帳金額", min_value=0, value=10000, step=1000)
 source_name = st.text_input("資金來源備註", value="本薪/獎學金")
 
-# --- 2. 升級後的動態預算設定區 ---
-st.header("2. 戰略分配設定 (自定義)")
+# --- 2. 戰略分配設定 (進階自定義版) ---
+st.header("2. 戰略分配設定")
 
-# 預設一些分類，但使用者可以隨意修改、新增或刪除
-if 'budget_settings' not in st.session_state:
-    st.session_state.budget_settings = [
+# 初始化 session_state
+if 'temp_budget' not in st.session_state:
+    st.session_state.temp_budget = [
         {"類別": "生活預算", "百分比": 50},
         {"類別": "投資帳戶", "百分比": 30},
         {"類別": "儲蓄帳戶", "百分比": 20}
     ]
 
-# 使用 data_editor 讓使用者直接在介面上修改「類別名稱」和「百分比」
-edited_df = st.data_editor(
-    st.session_state.budget_settings,
-    num_rows="dynamic",  # 允許使用者自行新增或刪除列
-    key="budget_editor",
-    use_container_width=True
-)
+# --- 新增類別的區塊 ---
+with st.expander("➕ 新增預算類別"):
+    new_cat_name = st.text_input("輸入新類別名稱", placeholder="例如：機車改裝")
+    if st.button("確認新增"):
+        if new_cat_name:
+            st.session_state.temp_budget.append({"類別": new_cat_name, "百分比": 0})
+            st.rerun()
 
-# 計算總百分比
-total_ratio = sum(item['百分比'] for item in edited_df)
+# --- 動態顯示類別與刪除按鈕 ---
+updated_budget = []
+for i, item in enumerate(st.session_state.temp_budget):
+    col_name, col_pct, col_del = st.columns([3, 2, 1])
 
-# --- 3. 視覺化預覽與寫入邏輯 (終極整合版) ---
+    with col_name:
+        new_name = st.text_input(f"類別-{i}", value=item["類別"], label_visibility="collapsed")
+    with col_pct:
+        new_pct = st.number_input(f"百分比-{i}", value=item["百分比"], min_value=0, max_value=100, step=1,
+                                  label_visibility="collapsed")
+    with col_del:
+        if st.button("🗑️", key=f"del_{i}"):
+            st.session_state.temp_budget.pop(i)
+            st.rerun()
+
+    updated_budget.append({"類別": new_name, "百分比": new_pct})
+
+# 更新數據
+st.session_state.temp_budget = updated_budget
+
+# --- 3. 狀態偵測與寫入邏輯 ---
+total_ratio = sum(item['百分比'] for item in st.session_state.temp_budget)
+
 if total_ratio != 100:
-    st.error(f"⚠️ 目前總和為 {total_ratio}%，請調整至 100% 以執行分配。")
+    # 改為警告色調，並顯示你要求的文字
+    st.warning(f"⚠️ 目前總和：{total_ratio}% -> 「請重新計算」")
 else:
     st.success("✅ 比例分配完美")
 
-    # 動態預覽計算結果 (根據使用者自訂的類別跑迴圈)
     st.markdown("### 💰 預算分配預覽")
-    for item in edited_df:
-        calculated_amount = int(income_amount * (item['百分比'] / 100))
-        st.write(f"**{item['類別']}：** ${calculated_amount}")
+    for item in st.session_state.temp_budget:
+        amt = int(income_amount * (item['百分比'] / 100))
+        st.write(f"**{item['類別']}：** ${amt}")
 
-    st.markdown("---")
-
-    # 唯一且強大的寫入按鈕
     if st.button("⚡ 確認寫入戰情資料庫"):
         today = datetime.now().strftime('%Y-%m-%d')
         records_to_add = []
-
-        # 1. 紀錄總收入
         records_to_add.append([today, '收入', source_name, income_amount, '主帳戶', '收入進帳'])
 
-        # 2. 根據使用者自定義的分類，跑迴圈產出紀錄
-        for item in edited_df:
-            cat_name = item['類別']
-            ratio = item['百分比']
-            allocated_amount = int(income_amount * (ratio / 100))
-
+        for item in st.session_state.temp_budget:
             records_to_add.append([
-                today,
-                '轉帳',
-                f'{cat_name}({ratio}%)',
-                allocated_amount,
-                cat_name,  # 直接以自定義的名稱作為「帳戶」名稱
-                '系統自動預算分配'
+                today, '轉帳', f"{item['類別']}({item['百分比']}%)",
+                int(income_amount * (item['百分比'] / 100)),
+                item['類別'], '系統自動預算分配'
             ])
 
-        # 3. 執行寫入 (加上錯誤捕捉)
         try:
             worksheet.append_rows(records_to_add)
             st.balloons()
-            st.success("✅ 戰術執行成功！資料已同步至您的專屬雲端資料庫。")
+            st.success("✅ 戰術執行成功！資料已同步。")
         except Exception as e:
-            st.error(f"❌ 寫入失敗，請檢查權限或連線：{e}")
+            st.error(f"❌ 寫入失敗：{e}")
