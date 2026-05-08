@@ -39,9 +39,17 @@ if not st.session_state.logged_in:
             records = users_sheet.get_all_records()
             user_found = False
             for row in records:
-                if str(row.get("Username")) == login_user and str(row.get("Password")) == login_pw:
+                # 抓取資料庫的值，強制轉成文字並消除隱形空白
+                db_user = str(row.get("Username", "")).strip()
+                db_pw = str(row.get("Password", "")).strip()
+                
+                # 你輸入的值也消除隱形空白
+                input_user = login_user.strip()
+                input_pw = login_pw.strip()
+                
+                if db_user == input_user and db_pw == input_pw:
                     st.session_state.logged_in = True
-                    st.session_state.username = login_user
+                    st.session_state.username = input_user
                     user_found = True
                     st.rerun()  # 重新整理網頁，進入主系統
 
