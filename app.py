@@ -77,7 +77,6 @@ if not df.empty:
     df['年月'] = df['日期'].dt.strftime('%Y-%m')
     df['年'] = df['日期'].dt.year
 
-# 自動扣款設定表初始化
 try:
     rec_ws = sh.worksheet(f"{st.session_state.username}_自動扣款")
 except gspread.WorksheetNotFound:
@@ -324,7 +323,7 @@ with tabs[4]:
             st.rerun()
 
 # ------------------------------------------
-# 【Tab 6：設定中心 (加入財政部捷徑)】
+# 【Tab 6：設定中心 (加入最新財政部捷徑)】
 # ------------------------------------------
 with tabs[5]:
     st.header("⚙️ 系統核心設定")
@@ -358,14 +357,14 @@ with tabs[5]:
 
     st.markdown("---")
     st.subheader("📡 財政部載具 API 設定區 (準備中)")
-    st.write("要讓發票自動匯入，請先確認您的載具驗證碼，並申請 API 金鑰。您可點擊下方按鈕前往財政部平台處理。")
+    st.write("要讓發票自動匯入，請先確認您的載具驗證碼，並申請 API 金鑰。")
     
-    # 建立快捷通道按鈕
+    # 使用你提供的最新精準連結
     link_c1, link_c2 = st.columns(2)
     with link_c1:
-        st.link_button("🔗 忘記驗證碼？前往重設 (點選忘記驗證碼)", "https://www.einvoice.nat.gov.tw/APCONSUMER/BTC501W/")
+        st.link_button("🔗 忘記驗證碼？前往重設", "https://www.einvoice.nat.gov.tw/accounts/forgot/password/mw")
     with link_c2:
-        st.link_button("🔗 申請發票 API (AppID) 頁面", "https://www.einvoice.nat.gov.tw/APMEMBERVAN/XcaAppId/XcaAppId010W_UI")
+        st.link_button("🔗 申請發票 API (AppID)", "https://www.einvoice.nat.gov.tw/accounts/signup/mw")
 
     with st.container(border=True):
         st.text_input("手機條碼 (CardNo)", placeholder="/XXXXXXX")
