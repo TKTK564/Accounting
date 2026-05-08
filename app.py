@@ -78,4 +78,4 @@ else:
             st.balloons()  # 寫入成功後的視覺回饋
             st.success("✅ 戰術執行成功！資料已同步至雲端資料庫。")
         except Exception as e:
-            st.error(f"❌ 寫入失敗，請檢查權限或連
+            st.error(f"❌ 寫入失敗，請檢查權限或連線：{e}")
