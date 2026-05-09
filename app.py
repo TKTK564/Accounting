@@ -43,9 +43,6 @@ if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
     st.session_state.username = ""
 
-if 'card_no' not in st.session_state: st.session_state.card_no = ""
-if 'card_encrypt' not in st.session_state: st.session_state.card_encrypt = ""
-
 if 'pool_configs' not in st.session_state:
     st.session_state.pool_configs = [
         {"池名": "生活預算", "上限模式": "百分比", "上限值": 50},
@@ -67,8 +64,6 @@ if not st.session_state.logged_in:
                 if str(r.get("Username")).strip() == u.strip() and str(r.get("Password")).strip() == p.strip():
                     st.session_state.logged_in = True
                     st.session_state.username = u
-                    st.session_state.card_no = str(r.get("CardNo", ""))
-                    st.session_state.card_encrypt = str(r.get("CardEncrypt", ""))
                     st.rerun()
             st.error("帳密不符")
     with t2:
@@ -152,7 +147,6 @@ with tabs[1]:
     with col_man:
         st.subheader("✍️ 手動輸入")
         with st.container(border=True):
-            # 為手動輸入添加專屬 key
             en = st.text_input("項目", key="manual_exp_name")
             ev = st.number_input("金額", min_value=0, key="manual_exp_val")
             ep = st.selectbox("扣款池", [p['池名'] for p in st.session_state.pool_configs], key="manual_exp_pool")
@@ -221,7 +215,6 @@ with tabs[2]:
     st.subheader("➕ 新增自動扣款")
     with st.container(border=True):
         c1, c2 = st.columns(2)
-        # 為自動扣款輸入添加專屬 key，避免與支出登錄衝突
         n = c1.text_input("項目名稱", key="auto_debit_name")
         a = c2.number_input("金額", min_value=0, key="auto_debit_val")
         p_auto = st.selectbox("預算池", [pool['池名'] for pool in st.session_state.pool_configs], key="auto_debit_pool")
@@ -230,7 +223,7 @@ with tabs[2]:
             if n and a > 0: rec_ws.append_row([n, a, p_auto, cat_auto, "1", "每月"]); st.toast("✅ 儲存成功！"); st.rerun()
 
 # ------------------------------------------
-# 【Tab 4：現金流】
+# 【Tab 4：現金流】 (每月現金流流向升級)
 # ------------------------------------------
 with tabs[3]:
     if df.empty:
@@ -247,33 +240,44 @@ with tabs[3]:
         m_ex = m_df[m_df['類型'] == '支出']['金額'].sum()
 
         st.markdown("---")
-        # 1. 實質總資產
+        # 1. 實質總資產 與 每月現金流流向
         st.metric("💰 實質總資產 (全期結餘)", f"${current_assets:,.0f}")
+        
+        # 計算每月盈餘趨勢
         monthly_delta = df.groupby('年月').apply(lambda x: x[x['類型']=='收入']['金額'].sum() - x[x['類型']=='支出']['金額'].sum()).reset_index()
         monthly_delta.columns = ['年月', '月盈餘']
         monthly_delta['累計資產'] = monthly_delta['月盈餘'].cumsum()
-        fig_assets = px.bar(monthly_delta, x='年月', y='累計資產', title="每月資產水位趨勢", color_discrete_sequence=['#6c757d'])
+        
+        # 優化 X 軸標籤格式：月份 (年份)
+        monthly_delta['顯示標籤'] = pd.to_datetime(monthly_delta['年月']).dt.strftime('%m (%Y)')
+        
+        fig_assets = px.bar(monthly_delta, x='顯示標籤', y='累計資產', title="每月現金流流向", 
+                           color_discrete_sequence=['#6c757d'],
+                           labels={"顯示標籤": "月份 (年份)", "累計資產": "資產水位"})
         st.plotly_chart(fig_assets, use_container_width=True)
         
         st.markdown("---")
-        # 2. 月份總收入
+        # 2. 月份總收入 (綠色系圓餅圖)
         st.metric(f"📈 {selected_month} 總收入", f"${m_in:,.0f}")
         inc_df = m_df[m_df['類型'] == '收入']
         if not inc_df.empty:
-            fig_inc = px.pie(inc_df, values='金額', names='備註', hole=0.4, title="收入來源比例", color_discrete_sequence=px.colors.sequential.Greens_r)
+            fig_inc = px.pie(inc_df, values='金額', names='備註', hole=0.4, title="收入來源比例", 
+                            color_discrete_sequence=px.colors.sequential.Greens_r)
             st.plotly_chart(fig_inc, use_container_width=True)
         else: st.info("該月尚無收入。")
 
         st.markdown("---")
-        # 3. 月份總支出
+        # 3. 月份總支出 (紅色系圓餅圖)
         st.metric(f"📉 {selected_month} 總支出", f"${m_ex:,.0f}")
         exp_df = m_df[m_df['類型'] == '支出']
         if not exp_df.empty:
-            fig_exp = px.pie(exp_df, values='金額', names='類別', hole=0.4, title="支出分佈比例", color_discrete_sequence=px.colors.sequential.OrRd_r)
+            fig_exp = px.pie(exp_df, values='金額', names='類別', hole=0.4, title="支出分佈比例", 
+                            color_discrete_sequence=px.colors.sequential.OrRd_r)
             st.plotly_chart(fig_exp, use_container_width=True)
         else: st.info("該月尚無支出。")
 
         st.markdown("---")
+        # 4. 監控模式 (更名並優化數據互動)
         mode = st.radio("監控模式：", ["📉 每日收入與花費", "🎯 預算上限監控"], horizontal=True, key="dash_mode_radio")
         if mode == "📉 每日收入與花費":
             y, m = map(int, selected_month.split('-'))
@@ -314,7 +318,7 @@ with tabs[4]:
             worksheet.append_rows(save_df.values.tolist()); st.toast("✅ 同步成功"); st.rerun()
 
 # ------------------------------------------
-# 【Tab 6：設定中心】
+# 【Tab 6：設定中心】 (徹底清理載具金鑰)
 # ------------------------------------------
 with tabs[5]:
     st.header("⚙️ 系統核心設定")
@@ -342,16 +346,6 @@ with tabs[5]:
         if st.button("➕ 新增項", key="add_cat_btn"): st.session_state.expense_cats.append(ne_cat); st.toast("✅ 新增成功！"); st.rerun()
 
     st.markdown("---")
-    st.subheader("📡 載具金鑰綁定")
-    with st.container(border=True):
-        c_no_bind = st.text_input("手機條碼", value=st.session_state.card_no, key="card_no_input")
-        c_pw_bind = st.text_input("驗證碼", value=st.session_state.card_encrypt, type="password", key="card_pw_input")
-        if st.button("🔒 綁定金鑰", key="bind_key_btn"):
-            if c_no_bind and c_pw_bind:
-                recs = users_sheet.get_all_records()
-                for idx, r in enumerate(recs):
-                    if str(r.get("Username")).strip() == st.session_state.username:
-                        users_sheet.update_cell(idx + 2, 3, c_no_bind)
-                        users_sheet.update_cell(idx + 2, 4, c_pw_bind)
-                        st.session_state.card_no, st.session_state.card_encrypt = c_no_bind, c_pw_bind
-                        st.toast("✅ 綁定成功！"); break
+    st.subheader("📧 財政部 E-mail 訂閱設定")
+    st.write("坐等情報上門！請點擊按鈕開啟每月消費明細寄送，配合 n8n 攔截網即可完成自動化入帳。")
+    st.link_button("👉 前往開啟 E-mail 消費明細通知", "https://www.einvoice.nat.gov.tw/portal/btc/mobile/btc513w/main")
