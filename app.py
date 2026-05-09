@@ -8,9 +8,9 @@ from datetime import datetime, timedelta
 import calendar
 import time
 import requests
-import urllib3 # 新增：網路請求的核心套件
+import urllib3
 
-# 【戰術設定】關閉 Python 對政府網站的不信任警告 (滅音器)
+# 關閉 Python 對政府網站的不信任警告 (滅音器)
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # --- 1. 介面與主題設定 ---
@@ -29,33 +29,29 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. 雲端連線與資料表防禦 ---
+# --- 2. 雲端連線與資料庫防禦裝甲 ---
 try:
     credentials = json.loads(st.secrets["gcp_service_account_json"])
     gc = gspread.service_account_from_dict(credentials)
     sh = gc.open('專屬財務戰情資料庫')
     users_sheet = sh.worksheet('使用者名冊')
     
-    # 【自動防禦機制】檢查並修復標題列，避免 get_all_records 報錯
+    # 退回 4 個欄位 (Username, Password, CardNo, CardEncrypt)，不再需要 AppID
     headers = users_sheet.row_values(1)
-    # 補齊長度不足的空字串，以防 Index 報錯
     while len(headers) < 4:
         headers.append("")
-        
     if headers[0] != "Username" or headers[2] != "CardNo":
         users_sheet.update('A1:D1', [["Username", "Password", "CardNo", "CardEncrypt"]])
-        
 except Exception as e:
     st.error(f"❌ 雲端連線失敗：{e}"); st.stop()
-# --- 3. 初始化 Session State (防彈升級版) ---
+
+# --- 3. 初始化 Session State ---
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
     st.session_state.username = ""
 
-if 'card_no' not in st.session_state:
-    st.session_state.card_no = ""
-if 'card_encrypt' not in st.session_state:
-    st.session_state.card_encrypt = ""
+if 'card_no' not in st.session_state: st.session_state.card_no = ""
+if 'card_encrypt' not in st.session_state: st.session_state.card_encrypt = ""
 
 if 'pool_configs' not in st.session_state:
     st.session_state.pool_configs = [
@@ -86,8 +82,6 @@ if not st.session_state.logged_in:
         nu = st.text_input("新帳號"); np = st.text_input("新密碼", type="password")
         if st.button("確認註冊"):
             users_sheet.append_row([nu, np, "", ""])
-            if len(users_sheet.row_values(1)) < 4:
-                users_sheet.update('A1:D1', [["Username", "Password", "CardNo", "CardEncrypt"]])
             sh.add_worksheet(title=nu, rows="1000", cols="10").append_row(["日期", "類型", "類別", "金額", "帳戶", "備註"])
             st.toast("✅ 註冊成功！", icon="🎉")
     st.stop()
@@ -223,6 +217,7 @@ with tabs[2]:
         
         c_no = st.session_state.card_no
         c_pw = st.session_state.card_encrypt
+        
         def_pool = st.selectbox("發票預設扣款池", [p['池名'] for p in st.session_state.pool_configs], key="auto_p")
         
         def get_item_category(item_desc, history_df, current_cats):
@@ -240,31 +235,57 @@ with tabs[2]:
 
         if st.button("⚡ 開始同步昨日發票"):
             if not c_no or not c_pw:
-                st.error("⚠️ 請先至【設定中心】綁定手機條碼與驗證碼！")
+                st.error("⚠️ 請先至【設定中心】綁定您的手機條碼與驗證碼！")
             else:
-                with st.spinner("🕵️ 正在強制破門進入財政部資料庫..."):
+                with st.spinner("🕵️ 啟動公用金鑰輪詢引擎，嘗試強制破門..."):
                     try:
                         yesterday = datetime.now() - timedelta(days=1)
                         roc_year = yesterday.year - 1911
                         term_month = yesterday.month if yesterday.month % 2 == 0 else yesterday.month + 1
                         inv_term = f"{roc_year}{term_month:02d}"
                         date_str = yesterday.strftime('%Y/%m/%d')
-                        public_app_id = "EINV112000000213" 
                         url = "https://api.einvoice.nat.gov.tw/PB2CAPIVAN/invapp/InvApp"
 
-                        # 第一階段：取得清單
-                        payload_list = {
-                            "version": "0.5", "type": "Barcode", "invTerm": inv_term,
-                            "action": "carrierInvChk", "cardType": "3J0002",
-                            "cardNo": c_no, "cardEncrypt": c_pw, "appID": public_app_id,
-                            "expTimeStamp": str(int(time.time()) + 100), "UUID": f"list_{int(time.time())}",
-                            "startDate": date_str, "endDate": date_str, "onlyWinningInv": "N"
-                        }
+                        # 【戰術更新】開源金鑰輪詢池
+                        public_app_ids = [
+                            "EINV112000000213", # 水滴
+                            "EINV1110515",      # Github常見庫
+                            "EINV3114",         # 其他專案
+                            "EINV987654321098"  # 測試金鑰
+                        ]
                         
-                        # 【戰術破門】加入 verify=False 強制略過 SSL 檢查
-                        res_list = requests.post(url, data=payload_list, verify=False).json()
+                        res_list = None
+                        working_app_id = None
+                        error_msg = ""
                         
-                        if res_list.get("code") == "200":
+                        # 自動嘗試所有金鑰
+                        for app_id in public_app_ids:
+                            payload_list = {
+                                "version": "0.5", "type": "Barcode", "invTerm": inv_term,
+                                "action": "carrierInvChk", "cardType": "3J0002",
+                                "cardNo": c_no, "cardEncrypt": c_pw, "appID": app_id,
+                                "expTimeStamp": str(int(time.time()) + 100), "UUID": f"list_{int(time.time())}",
+                                "startDate": date_str, "endDate": date_str, "onlyWinningInv": "N"
+                            }
+                            res = requests.post(url, data=payload_list, verify=False).json()
+                            code = res.get("code")
+                            msg = res.get("msg", "")
+                            
+                            if code == "200":
+                                res_list = res
+                                working_app_id = app_id
+                                break # 破門成功，跳出迴圈
+                            elif "appID" not in msg:
+                                # 如果錯誤訊息不是 appID 問題 (例如驗證碼錯誤)，就直接報錯，不浪費時間試下一把
+                                res_list = res
+                                error_msg = msg
+                                break
+                            else:
+                                # 是 AppID 被擋，繼續試下一把
+                                error_msg = msg
+                                continue
+                        
+                        if res_list and res_list.get("code") == "200":
                             inv_list = res_list.get("details", [])
                             if not inv_list:
                                 st.success("✅ 昨日無發票紀錄。")
@@ -276,7 +297,7 @@ with tabs[2]:
                                     y_str = yesterday.strftime('%Y-%m-%d')
                                     existing_memos = df[df['日期'].astype(str) == y_str]['備註'].tolist()
                                 
-                                # 第二階段：迴圈明細
+                                # 使用成功的金鑰抓取明細
                                 for inv in inv_list:
                                     inv_num = inv.get("invNum")
                                     store = inv.get("sellerName", "未知商店")
@@ -284,12 +305,11 @@ with tabs[2]:
                                     payload_detail = {
                                         "version": "0.5", "type": "Barcode", "invTerm": inv_term,
                                         "action": "carrierInvDetail", "cardType": "3J0002",
-                                        "cardNo": c_no, "cardEncrypt": c_pw, "appID": public_app_id,
+                                        "cardNo": c_no, "cardEncrypt": c_pw, "appID": working_app_id,
                                         "expTimeStamp": str(int(time.time()) + 100), "UUID": f"det_{inv_num}",
                                         "invNum": inv_num, "invDate": date_str
                                     }
                                     
-                                    # 【戰術破門】明細請求也加入 verify=False
                                     res_detail = requests.post(url, data=payload_detail, verify=False).json()
                                     time.sleep(0.1)
                                     
@@ -311,12 +331,12 @@ with tabs[2]:
                                 else:
                                     st.info("👍 昨日所有物品明細皆已同步過，無新紀錄。")
                         else:
-                            st.error(f"❌ 財政部回傳錯誤：{res_list.get('msg', '未知錯誤')}")
+                            st.error(f"❌ 財政部回傳錯誤：{error_msg or '無法連接有效金鑰'}")
                     except Exception as e:
                         st.error(f"❌ 網路請求失敗：{str(e)}")
 
 # ------------------------------------------
-# 【Tab 4：自動扣款】 (維持不變)
+# 【Tab 4：自動扣款】
 # ------------------------------------------
 with tabs[3]:
     st.header("🔄 定期自動扣款系統")
@@ -429,14 +449,13 @@ with tabs[5]:
 
     st.markdown("---")
     st.subheader("📡 財政部載具金鑰綁定")
-    st.write("一次設定，永久記憶。您輸入的金鑰將安全加密並綁定於您的登入帳號。")
-    link_c1, link_c2 = st.columns(2)
-    with link_c1: st.link_button("🔗 忘記驗證碼？前往重設", "https://www.einvoice.nat.gov.tw/accounts/forgot/password/mw")
-    with link_c2: st.link_button("🔗 手機條碼申請", "https://www.einvoice.nat.gov.tw/accounts/signup/mw")
+    st.write("輸入條碼與密碼，系統會在背景自動為您切換公用金鑰池進行破門。")
+    st.link_button("🔗 忘記驗證碼？前往重設", "https://www.einvoice.nat.gov.tw/accounts/forgot/password/mw")
 
     with st.container(border=True):
         c_no = st.text_input("手機條碼 (CardNo)", value=st.session_state.card_no, placeholder="/XXXXXXX")
         c_pw = st.text_input("驗證碼 (CardEncrypt)", value=st.session_state.card_encrypt, type="password")
+        
         if st.button("🔒 綁定金鑰至我的帳號"):
             if c_no and c_pw:
                 recs = users_sheet.get_all_records()
@@ -447,7 +466,7 @@ with tabs[5]:
                         users_sheet.update_cell(row_number, 4, c_pw)
                         st.session_state.card_no = c_no
                         st.session_state.card_encrypt = c_pw
-                        st.toast("✅ 金鑰已永久綁定！現在可至【支出與載具同步】點擊同步按鈕。", icon="🗝️")
+                        st.toast("✅ 條碼已永久綁定！現在可至【支出與載具同步】點擊同步按鈕。", icon="🗝️")
                         break
             else:
-                st.error("請輸入完整的條碼與驗證碼")
+                st.error("請輸入完整的條碼與驗證碼！")
