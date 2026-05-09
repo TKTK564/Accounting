@@ -9,6 +9,7 @@ import calendar
 import time
 import requests
 import urllib3
+import io
 
 # 關閉 Python 對政府網站的不信任警告 (滅音器)
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -29,17 +30,15 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. 雲端連線與資料庫防禦裝甲 ---
+# --- 2. 雲端連線 ---
 try:
     credentials = json.loads(st.secrets["gcp_service_account_json"])
     gc = gspread.service_account_from_dict(credentials)
     sh = gc.open('專屬財務戰情資料庫')
     users_sheet = sh.worksheet('使用者名冊')
     
-    # 退回 4 個欄位 (Username, Password, CardNo, CardEncrypt)，不再需要 AppID
     headers = users_sheet.row_values(1)
-    while len(headers) < 4:
-        headers.append("")
+    while len(headers) < 4: headers.append("")
     if headers[0] != "Username" or headers[2] != "CardNo":
         users_sheet.update('A1:D1', [["Username", "Password", "CardNo", "CardEncrypt"]])
 except Exception as e:
@@ -141,23 +140,23 @@ with tabs[0]:
             plot_df['收入'] = daily_in; plot_df['支出'] = daily_ex
             plot_df = plot_df.fillna(0).reset_index().rename(columns={'index': '日期'})
             fig = go.Figure()
-            fig.add_trace(go.Bar(x=plot_df['日期'], y=plot_df['收入'], name='每日收入', marker_color='#28a745', hovertemplate='收入: $%{y:,.0f}'))
-            fig.add_trace(go.Bar(x=plot_df['日期'], y=-plot_df['支出'], name='每日支出', marker_color='#dc3545', customdata=plot_df['支出'], hovertemplate='支出: $%{customdata:,.0f}'))
+            fig.add_trace(go.Bar(x=plot_df['日期'], y=plot_df['收入'], name='每日收入', marker_color='#28a745'))
+            fig.add_trace(go.Bar(x=plot_df['日期'], y=-plot_df['支出'], name='每日支出', marker_color='#dc3545'))
             fig.update_layout(title=f"📊 {selected_month} 每日流水", barmode='relative', xaxis=dict(type='date', tickformat='%d'))
             st.plotly_chart(fig, use_container_width=True)
         elif mode == "💰 月份收入來源":
             inc_df = m_df[m_df['類型'] == '收入']
-            if not inc_df.empty: st.plotly_chart(px.pie(inc_df, values='金額', names='備註', hole=0.4, title=f"{selected_month} 收入來源"), use_container_width=True)
+            if not inc_df.empty: st.plotly_chart(px.pie(inc_df, values='金額', names='備註', hole=0.4), use_container_width=True)
             else: st.write("尚無紀錄。")
         elif mode == "💸 月份支出分佈":
             exp_df = m_df[m_df['類型'] == '支出']
-            if not exp_df.empty: st.plotly_chart(px.pie(exp_df, values='金額', names='類別', hole=0.4, title=f"{selected_month} 支出分佈"), use_container_width=True)
+            if not exp_df.empty: st.plotly_chart(px.pie(exp_df, values='金額', names='類別', hole=0.4), use_container_width=True)
             else: st.write("尚無紀錄。")
         elif mode == "🏦 預算剩餘":
             in_p = df[df['類型'] == '轉帳'].groupby('帳戶')['金額'].sum()
             out_p = df[df['類型'] == '支出'].groupby('帳戶')['金額'].sum()
             pool_rem = [{"帳戶": n, "現金": in_p[n] - out_p.get(n, 0)} for n in in_p.index if (in_p[n] - out_p.get(n, 0)) != 0]
-            if pool_rem: st.plotly_chart(px.pie(pd.DataFrame(pool_rem), values='現金', names='帳戶', hole=0.4, title="各帳戶預算剩餘"), use_container_width=True)
+            if pool_rem: st.plotly_chart(px.pie(pd.DataFrame(pool_rem), values='現金', names='帳戶', hole=0.4), use_container_width=True)
             else: st.write("尚無紀錄。")
         elif mode == "🎯 預算上限監控":
             config_df = pd.DataFrame(st.session_state.pool_configs)
@@ -167,7 +166,7 @@ with tabs[0]:
             fig = go.Figure()
             fig.add_trace(go.Bar(x=comp['池名'], y=comp['計算上限'], name='預算上限', marker_color='#adb5bd'))
             fig.add_trace(go.Bar(x=comp['池名'], y=comp['實際支出'], name='實際花費', marker_color='#dc3545'))
-            fig.update_layout(barmode='overlay', title="預算執行監控"); st.plotly_chart(fig, use_container_width=True)
+            fig.update_layout(barmode='overlay'); st.plotly_chart(fig, use_container_width=True)
 
 # ------------------------------------------
 # 【Tab 2：收入金錢分配】
@@ -194,11 +193,24 @@ with tabs[1]:
     elif i_val > 0: st.warning(f"分配總額 (${total_alloc}) 與進帳 (${i_val}) 不符")
 
 # ------------------------------------------
-# 【Tab 3：支出登錄與載具同步】
+# 【Tab 3：支出登錄與載具同步 (雙核同步引擎)】
 # ------------------------------------------
 with tabs[2]:
     st.header("💸 支出登錄與載具同步")
     col_man, col_auto = st.columns([1, 1])
+    
+    # 共用的 AI 記憶引擎
+    def get_item_category(item_desc, history_df, current_cats):
+        if not history_df.empty:
+            match = history_df[history_df['備註'].str.endswith(f"- {item_desc}", na=False)]
+            if not match.empty:
+                last_cat = match.iloc[-1]['類別']
+                if last_cat in current_cats: return last_cat
+        desc_up = str(item_desc).upper()
+        if any(k in desc_up for k in ["餐", "麵", "飯", "飲", "茶", "水", "便當", "咖啡", "拿鐵", "蛋", "奶", "肉", "果", "食"]): return "飲食"
+        if any(k in desc_up for k in ["油", "車票", "客運", "停車", "高鐵", "台鐵", "捷運"]): return "交通"
+        if any(k in desc_up for k in ["紙", "袋", "洗", "巾", "筆", "袋"]): return "生活用品"
+        return "未分類"
     
     with col_man:
         st.subheader("✍️ 手動輸入")
@@ -212,128 +224,125 @@ with tabs[2]:
                     st.toast(f"✅ 已從 {ep} 扣除 ${ev}", icon="📉"); st.rerun()
                     
     with col_auto:
-        st.subheader("📡 雲端載具同步 (AI 物品記憶引擎)")
-        st.write("精細抓取每一項「物品名稱」，並根據你過去的修改紀錄自動分類。")
-        
-        c_no = st.session_state.card_no
-        c_pw = st.session_state.card_encrypt
-        
+        st.subheader("📡 載具同步中樞")
         def_pool = st.selectbox("發票預設扣款池", [p['池名'] for p in st.session_state.pool_configs], key="auto_p")
         
-        def get_item_category(item_desc, history_df, current_cats):
-            if not history_df.empty:
-                match = history_df[history_df['備註'].str.endswith(f"- {item_desc}", na=False)]
-                if not match.empty:
-                    last_cat = match.iloc[-1]['類別']
-                    if last_cat in current_cats: return last_cat
+        tab_api, tab_csv = st.tabs(["⚡ 計畫 A: API 空中打擊", "📥 計畫 B: CSV 實體空投"])
+        
+        with tab_api:
+            st.write("系統會嘗試穿透財政部防火牆獲取資料。")
+            c_no = st.session_state.card_no
+            c_pw = st.session_state.card_encrypt
             
-            desc_up = item_desc.upper()
-            if any(k in desc_up for k in ["餐", "麵", "飯", "飲", "茶", "水", "便當", "咖啡", "拿鐵", "蛋", "奶", "肉", "果"]): return "飲食"
-            if any(k in desc_up for k in ["油", "車票", "客運", "停車", "高鐵", "台鐵"]): return "交通"
-            if any(k in desc_up for k in ["紙", "袋", "洗", "巾", "筆", "袋"]): return "生活用品"
-            return "未分類"
+            if st.button("🚀 啟動 API 強制同步"):
+                if not c_no or not c_pw:
+                    st.error("⚠️ 請先至【設定中心】綁定您的手機條碼與驗證碼！")
+                else:
+                    with st.spinner("🕵️ 正在切換多組金鑰嘗試破門..."):
+                        try:
+                            yesterday = datetime.now() - timedelta(days=1)
+                            roc_year = yesterday.year - 1911
+                            term_month = yesterday.month if yesterday.month % 2 == 0 else yesterday.month + 1
+                            inv_term = f"{roc_year}{term_month:02d}"
+                            date_str = yesterday.strftime('%Y/%m/%d')
+                            url = "https://api.einvoice.nat.gov.tw/PB2CAPIVAN/invapp/InvApp"
 
-        if st.button("⚡ 開始同步昨日發票"):
-            if not c_no or not c_pw:
-                st.error("⚠️ 請先至【設定中心】綁定您的手機條碼與驗證碼！")
-            else:
-                with st.spinner("🕵️ 啟動公用金鑰輪詢引擎，嘗試強制破門..."):
-                    try:
-                        yesterday = datetime.now() - timedelta(days=1)
-                        roc_year = yesterday.year - 1911
-                        term_month = yesterday.month if yesterday.month % 2 == 0 else yesterday.month + 1
-                        inv_term = f"{roc_year}{term_month:02d}"
-                        date_str = yesterday.strftime('%Y/%m/%d')
-                        url = "https://api.einvoice.nat.gov.tw/PB2CAPIVAN/invapp/InvApp"
-
-                        # 【戰術更新】開源金鑰輪詢池
-                        public_app_ids = [
-                            "EINV112000000213", # 水滴
-                            "EINV1110515",      # Github常見庫
-                            "EINV3114",         # 其他專案
-                            "EINV987654321098"  # 測試金鑰
-                        ]
-                        
-                        res_list = None
-                        working_app_id = None
-                        error_msg = ""
-                        
-                        # 自動嘗試所有金鑰
-                        for app_id in public_app_ids:
-                            payload_list = {
-                                "version": "0.5", "type": "Barcode", "invTerm": inv_term,
-                                "action": "carrierInvChk", "cardType": "3J0002",
-                                "cardNo": c_no, "cardEncrypt": c_pw, "appID": app_id,
-                                "expTimeStamp": str(int(time.time()) + 100), "UUID": f"list_{int(time.time())}",
-                                "startDate": date_str, "endDate": date_str, "onlyWinningInv": "N"
-                            }
-                            res = requests.post(url, data=payload_list, verify=False).json()
-                            code = res.get("code")
-                            msg = res.get("msg", "")
+                            # 擴充的金鑰輪詢池
+                            public_app_ids = ["EINV3114", "EINV4301", "EINV4002", "EINV1110515", "EINV112000000213"]
+                            res_list = None
+                            working_app_id = None
+                            error_msg = ""
                             
-                            if code == "200":
-                                res_list = res
-                                working_app_id = app_id
-                                break # 破門成功，跳出迴圈
-                            elif "appID" not in msg:
-                                # 如果錯誤訊息不是 appID 問題 (例如驗證碼錯誤)，就直接報錯，不浪費時間試下一把
-                                res_list = res
-                                error_msg = msg
-                                break
-                            else:
-                                # 是 AppID 被擋，繼續試下一把
-                                error_msg = msg
-                                continue
-                        
-                        if res_list and res_list.get("code") == "200":
-                            inv_list = res_list.get("details", [])
-                            if not inv_list:
-                                st.success("✅ 昨日無發票紀錄。")
-                            else:
-                                new_rows = []
-                                sync_count = 0
-                                existing_memos = []
-                                if not df.empty:
-                                    y_str = yesterday.strftime('%Y-%m-%d')
-                                    existing_memos = df[df['日期'].astype(str) == y_str]['備註'].tolist()
-                                
-                                # 使用成功的金鑰抓取明細
-                                for inv in inv_list:
-                                    inv_num = inv.get("invNum")
-                                    store = inv.get("sellerName", "未知商店")
-                                    
-                                    payload_detail = {
-                                        "version": "0.5", "type": "Barcode", "invTerm": inv_term,
-                                        "action": "carrierInvDetail", "cardType": "3J0002",
-                                        "cardNo": c_no, "cardEncrypt": c_pw, "appID": working_app_id,
-                                        "expTimeStamp": str(int(time.time()) + 100), "UUID": f"det_{inv_num}",
-                                        "invNum": inv_num, "invDate": date_str
-                                    }
-                                    
-                                    res_detail = requests.post(url, data=payload_detail, verify=False).json()
-                                    time.sleep(0.1)
-                                    
-                                    items = res_detail.get("details", [])
-                                    for item in items:
-                                        item_desc = item.get("description", "未知物品").strip()
-                                        amount = float(item.get("amount", 0))
-                                        memo = f"[載具] {store} - {item_desc}"
-                                        
-                                        if memo not in existing_memos and amount > 0:
-                                            suggested_cat = get_item_category(item_desc, df, st.session_state.expense_cats)
-                                            new_rows.append([yesterday.strftime('%Y-%m-%d'), '支出', suggested_cat, amount, def_pool, memo])
-                                            sync_count += 1
-                                
-                                if new_rows:
-                                    worksheet.append_rows(new_rows)
-                                    st.toast(f"✅ 成功匯入 {sync_count} 筆「物品級」明細！", icon="🚀")
-                                    time.sleep(1); st.rerun()
+                            for app_id in public_app_ids:
+                                payload_list = {
+                                    "version": "0.5", "type": "Barcode", "invTerm": inv_term,
+                                    "action": "carrierInvChk", "cardType": "3J0002",
+                                    "cardNo": c_no, "cardEncrypt": c_pw, "appID": app_id,
+                                    "expTimeStamp": str(int(time.time()) + 100), "UUID": f"list_{int(time.time())}",
+                                    "startDate": date_str, "endDate": date_str, "onlyWinningInv": "N"
+                                }
+                                res = requests.post(url, data=payload_list, verify=False, timeout=5).json()
+                                if res.get("code") == "200":
+                                    res_list = res; working_app_id = app_id; break
+                                elif "appID" not in res.get("msg", ""):
+                                    res_list = res; error_msg = res.get("msg", ""); break
                                 else:
-                                    st.info("👍 昨日所有物品明細皆已同步過，無新紀錄。")
-                        else:
-                            st.error(f"❌ 財政部回傳錯誤：{error_msg or '無法連接有效金鑰'}")
-                    except Exception as e:
-                        st.error(f"❌ 網路請求失敗：{str(e)}")
+                                    error_msg = res.get("msg", ""); continue
+                            
+                            if res_list and res_list.get("code") == "200":
+                                inv_list = res_list.get("details", [])
+                                if not inv_list: st.success("✅ 昨日無發票紀錄。")
+                                else:
+                                    new_rows = []; sync_count = 0
+                                    existing_memos = df[df['日期'].astype(str) == yesterday.strftime('%Y-%m-%d')]['備註'].tolist() if not df.empty else []
+                                    for inv in inv_list:
+                                        inv_num = inv.get("invNum"); store = inv.get("sellerName", "未知商店")
+                                        payload_detail = {
+                                            "version": "0.5", "type": "Barcode", "invTerm": inv_term,
+                                            "action": "carrierInvDetail", "cardType": "3J0002",
+                                            "cardNo": c_no, "cardEncrypt": c_pw, "appID": working_app_id,
+                                            "expTimeStamp": str(int(time.time()) + 100), "UUID": f"det_{inv_num}",
+                                            "invNum": inv_num, "invDate": date_str
+                                        }
+                                        res_detail = requests.post(url, data=payload_detail, verify=False).json()
+                                        time.sleep(0.1)
+                                        for item in res_detail.get("details", []):
+                                            item_desc = item.get("description", "未知物品").strip()
+                                            amount = float(item.get("amount", 0))
+                                            memo = f"[載具] {store} - {item_desc}"
+                                            if memo not in existing_memos and amount > 0:
+                                                suggested_cat = get_item_category(item_desc, df, st.session_state.expense_cats)
+                                                new_rows.append([yesterday.strftime('%Y-%m-%d'), '支出', suggested_cat, amount, def_pool, memo])
+                                                sync_count += 1
+                                    if new_rows:
+                                        worksheet.append_rows(new_rows); st.toast(f"✅ 成功匯入 {sync_count} 筆明細！", icon="🚀"); time.sleep(1); st.rerun()
+                                    else: st.info("👍 發票皆已同步過，無新紀錄。")
+                            else: st.error(f"❌ 財政部阻擋：{error_msg} (建議使用 計畫B：CSV 匯入)")
+                        except Exception as e: st.error(f"❌ 網路請求失敗：{str(e)}")
+        
+        with tab_csv:
+            st.info("💡 100% 繞過封鎖：至財政部下載 CSV 檔案後，直接拖曳至下方，系統同樣會啟動 AI 分類引擎！")
+            st.link_button("👉 前往財政部下載 CSV (點選 發票查詢及捐贈)", "https://www.einvoice.nat.gov.tw/APCONSUMER/BTC501W/")
+            
+            uploaded_file = st.file_uploader("📥 拖曳財政部 CSV 檔至此", type=["csv"])
+            if uploaded_file is not None:
+                if st.button("⚙️ 解析並匯入 CSV"):
+                    try:
+                        # 財政部預設編碼通常為 Big5，若失敗則退回 utf-8
+                        try: csv_df = pd.read_csv(uploaded_file, encoding='big5')
+                        except: csv_df = pd.read_csv(uploaded_file, encoding='utf-8')
+                        
+                        date_col = next((c for c in csv_df.columns if "日期" in c), None)
+                        store_col = next((c for c in csv_df.columns if "賣方" in c or "商店" in c), None)
+                        amt_col = next((c for c in csv_df.columns if "金額" in c or "總計" in c), None)
+                        
+                        if date_col and store_col and amt_col:
+                            new_rows = []; sync_count = 0
+                            for _, row in csv_df.iterrows():
+                                date_val = str(row[date_col]).strip()
+                                store_val = str(row[store_col]).strip()
+                                try: amt_val = float(str(row[amt_col]).replace(',', ''))
+                                except: amt_val = 0
+                                
+                                # 處理 CSV 內的日期格式 (例如 20240508 或 2024/05/08)
+                                if len(date_val) == 8 and "/" not in date_val: date_str = f"{date_val[:4]}-{date_val[4:6]}-{date_val[6:]}"
+                                elif "/" in date_val: date_str = date_val.replace("/", "-")
+                                else: date_str = datetime.now().strftime('%Y-%m-%d')
+                                
+                                memo = f"[載具] {store_val}"
+                                # 檢查是否重複
+                                existing = df[(df['日期'].astype(str) == date_str) & (df['備註'] == memo)] if not df.empty else pd.DataFrame()
+                                if existing.empty and amt_val > 0:
+                                    cat = get_item_category(store_val, df, st.session_state.expense_cats)
+                                    new_rows.append([date_str, '支出', cat, amt_val, def_pool, memo])
+                                    sync_count += 1
+                                    
+                            if new_rows:
+                                worksheet.append_rows(new_rows)
+                                st.toast(f"✅ 成功實體空投 {sync_count} 筆紀錄！", icon="📦"); time.sleep(1); st.rerun()
+                            else: st.info("👍 這些發票已經全部匯入過了，沒有重複！")
+                        else: st.error("❌ 無法辨識 CSV 欄位，請確認上傳的是財政部原始檔案。")
+                    except Exception as e: st.error(f"❌ 解析失敗：{e}")
 
 # ------------------------------------------
 # 【Tab 4：自動扣款】
@@ -466,7 +475,7 @@ with tabs[5]:
                         users_sheet.update_cell(row_number, 4, c_pw)
                         st.session_state.card_no = c_no
                         st.session_state.card_encrypt = c_pw
-                        st.toast("✅ 條碼已永久綁定！現在可至【支出與載具同步】點擊同步按鈕。", icon="🗝️")
+                        st.toast("✅ 條碼已永久綁定！現在可至【支出與載具同步】嘗試破門。", icon="🗝️")
                         break
             else:
                 st.error("請輸入完整的條碼與驗證碼！")
