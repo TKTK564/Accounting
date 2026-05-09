@@ -8,19 +8,18 @@ from datetime import datetime
 import time
 import calendar
 
-# --- 1. APP 質感與圖示設定 (核心品牌化區塊) ---
-st.set_page_config(page_title="個人財務紀錄", layout="wide")
-
-# 你的 GitHub 圖片原始連結
+# --- 1. 核心品牌化設定 (官方穩定管道) ---
 ICON_URL = "https://raw.githubusercontent.com/TKTK564/Accounting/refs/heads/main/logo.png"
 
-# 注意：為了防止 Markdown 誤判為代碼塊，這裡的所有 HTML 內容必須「絕對頂格靠左」
+# 使用 page_icon 直接注入圖片連結，這是最穩定的方式
+st.set_page_config(
+    page_title="個人財務紀錄", 
+    page_icon=ICON_URL,
+    layout="wide"
+)
+
+# 注入 CSS 樣式 (已移除所有縮排與隱形字元)
 st.markdown(f"""
-<head>
-<link rel="apple-touch-icon" href="{ICON_URL}">
-<link rel="icon" sizes="192x192" href="{ICON_URL}">
-<link rel="icon" sizes="512x512" href="{ICON_URL}">
-</head>
 <style>
 header {{visibility: hidden;}}
 footer {{visibility: hidden;}}
@@ -126,7 +125,7 @@ with colB:
 
 tabs = st.tabs(["📥 收入分配", "💸 支出與載具同步", "🔄 自動扣款", "📊 現金流", "📁 數據管理", "⚙️ 設定中心"])
 
-# --- Tab 內容直接承接你原本的詳細邏輯 ---
+# --- 此處接續原本 Tab 0 ~ Tab 5 的業務邏輯 ---
 with tabs[0]:
     st.header("📥 收入金錢分配")
     i_val = st.number_input("本次進帳總額", min_value=0, step=1000, key="income_total_input")
