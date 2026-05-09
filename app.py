@@ -9,7 +9,7 @@ import time
 import calendar
 
 # --- 1. APP 質感與圖示設定 (核心品牌化區塊) ---
-st.set_page_config(page_title="個人財務戰情系統", layout="wide")
+st.set_page_config(page_title="個人財務紀錄", layout="wide")
 
 # 你的 GitHub 圖片原始連結
 ICON_URL = "https://raw.githubusercontent.com/TKTK564/Accounting/refs/heads/main/ChatGPT%20Image%202026%E5%B9%B45%E6%9C%889%E6%97%A5%20%E4%B8%8B%E5%8D%8812_14_52.png"
@@ -77,7 +77,7 @@ if 'expense_cats' not in st.session_state:
 
 # --- 4. 登入閘門 ---
 if not st.session_state.logged_in:
-    st.title("🔐 戰情中心登入")
+    st.title("🔐 登入/註冊")
     t1, t2 = st.tabs(["🔑 登入", "📝 註冊"])
     with t1:
         u = st.text_input("帳號", key="login_u")
