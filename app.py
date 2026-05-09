@@ -8,6 +8,10 @@ from datetime import datetime, timedelta
 import calendar
 import time
 import requests
+import urllib3 # 新增：網路請求的核心套件
+
+# 【戰術設定】關閉 Python 對政府網站的不信任警告 (滅音器)
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # --- 1. 介面與主題設定 ---
 st.set_page_config(page_title="個人財務戰情系統", layout="wide")
@@ -34,12 +38,11 @@ try:
 except Exception as e:
     st.error(f"❌ 雲端連線失敗：{e}"); st.stop()
 
-# --- 3. 初始化 Session State ---
+# --- 3. 初始化 Session State (防彈升級版) ---
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
     st.session_state.username = ""
 
-# 【防彈升級】獨立初始化金鑰記憶體，避免系統熱更新時遺失變數
 if 'card_no' not in st.session_state:
     st.session_state.card_no = ""
 if 'card_encrypt' not in st.session_state:
@@ -188,7 +191,7 @@ with tabs[1]:
     elif i_val > 0: st.warning(f"分配總額 (${total_alloc}) 與進帳 (${i_val}) 不符")
 
 # ------------------------------------------
-# 【Tab 3：支出登錄與載具同步 (新增歷史記憶與明細拆解)】
+# 【Tab 3：支出登錄與載具同步】
 # ------------------------------------------
 with tabs[2]:
     st.header("💸 支出登錄與載具同步")
@@ -213,33 +216,24 @@ with tabs[2]:
         c_pw = st.session_state.card_encrypt
         def_pool = st.selectbox("發票預設扣款池", [p['池名'] for p in st.session_state.pool_configs], key="auto_p")
         
-        # 歷史記憶引擎與關鍵字後備分類
         def get_item_category(item_desc, history_df, current_cats):
-            # 1. 歷史記憶回溯：尋找以前有沒有包含這個物品的備註
             if not history_df.empty:
-                # 尋找備註結尾是該物品名稱的紀錄 (例如 "[載具] 7-11 - 拿鐵")
                 match = history_df[history_df['備註'].str.endswith(f"- {item_desc}", na=False)]
                 if not match.empty:
-                    # 取得最新一次設定的類別
                     last_cat = match.iloc[-1]['類別']
-                    if last_cat in current_cats:
-                        return last_cat
+                    if last_cat in current_cats: return last_cat
             
-            # 2. 關鍵字後備機制 (如果以前沒買過這個東西)
             desc_up = item_desc.upper()
-            if any(k in desc_up for k in ["餐", "麵", "飯", "飲", "茶", "水", "便當", "咖啡", "拿鐵", "蛋", "奶", "肉", "果"]):
-                return "飲食"
-            if any(k in desc_up for k in ["油", "車票", "客運", "停車", "高鐵", "台鐵"]):
-                return "交通"
-            if any(k in desc_up for k in ["紙", "袋", "洗", "巾", "筆", "袋"]):
-                return "生活用品"
+            if any(k in desc_up for k in ["餐", "麵", "飯", "飲", "茶", "水", "便當", "咖啡", "拿鐵", "蛋", "奶", "肉", "果"]): return "飲食"
+            if any(k in desc_up for k in ["油", "車票", "客運", "停車", "高鐵", "台鐵"]): return "交通"
+            if any(k in desc_up for k in ["紙", "袋", "洗", "巾", "筆", "袋"]): return "生活用品"
             return "未分類"
 
         if st.button("⚡ 開始同步昨日發票"):
             if not c_no or not c_pw:
                 st.error("⚠️ 請先至【設定中心】綁定手機條碼與驗證碼！")
             else:
-                with st.spinner("🕵️ 正在執行兩段式發票解析與歷史回溯..."):
+                with st.spinner("🕵️ 正在強制破門進入財政部資料庫..."):
                     try:
                         yesterday = datetime.now() - timedelta(days=1)
                         roc_year = yesterday.year - 1911
@@ -249,7 +243,7 @@ with tabs[2]:
                         public_app_id = "EINV112000000213" 
                         url = "https://api.einvoice.nat.gov.tw/PB2CAPIVAN/invapp/InvApp"
 
-                        # --- 第一階段：取得發票清單 ---
+                        # 第一階段：取得清單
                         payload_list = {
                             "version": "0.5", "type": "Barcode", "invTerm": inv_term,
                             "action": "carrierInvChk", "cardType": "3J0002",
@@ -257,7 +251,9 @@ with tabs[2]:
                             "expTimeStamp": str(int(time.time()) + 100), "UUID": f"list_{int(time.time())}",
                             "startDate": date_str, "endDate": date_str, "onlyWinningInv": "N"
                         }
-                        res_list = requests.post(url, data=payload_list).json()
+                        
+                        # 【戰術破門】加入 verify=False 強制略過 SSL 檢查
+                        res_list = requests.post(url, data=payload_list, verify=False).json()
                         
                         if res_list.get("code") == "200":
                             inv_list = res_list.get("details", [])
@@ -266,19 +262,16 @@ with tabs[2]:
                             else:
                                 new_rows = []
                                 sync_count = 0
-                                
-                                # 準備比對用的歷史資料 (防止重複匯入)
                                 existing_memos = []
                                 if not df.empty:
                                     y_str = yesterday.strftime('%Y-%m-%d')
                                     existing_memos = df[df['日期'].astype(str) == y_str]['備註'].tolist()
                                 
-                                # --- 第二階段：迴圈取得每一張發票的「物品明細」 ---
+                                # 第二階段：迴圈明細
                                 for inv in inv_list:
                                     inv_num = inv.get("invNum")
                                     store = inv.get("sellerName", "未知商店")
                                     
-                                    # 發送明細請求
                                     payload_detail = {
                                         "version": "0.5", "type": "Barcode", "invTerm": inv_term,
                                         "action": "carrierInvDetail", "cardType": "3J0002",
@@ -286,19 +279,18 @@ with tabs[2]:
                                         "expTimeStamp": str(int(time.time()) + 100), "UUID": f"det_{inv_num}",
                                         "invNum": inv_num, "invDate": date_str
                                     }
-                                    res_detail = requests.post(url, data=payload_detail).json()
-                                    time.sleep(0.1) # 禮貌性延遲，避免被財政部擋IP
+                                    
+                                    # 【戰術破門】明細請求也加入 verify=False
+                                    res_detail = requests.post(url, data=payload_detail, verify=False).json()
+                                    time.sleep(0.1)
                                     
                                     items = res_detail.get("details", [])
                                     for item in items:
                                         item_desc = item.get("description", "未知物品").strip()
                                         amount = float(item.get("amount", 0))
-                                        
-                                        # 產生精確到「物品名稱」的備註
                                         memo = f"[載具] {store} - {item_desc}"
                                         
                                         if memo not in existing_memos and amount > 0:
-                                            # 啟動記憶引擎，判定分類
                                             suggested_cat = get_item_category(item_desc, df, st.session_state.expense_cats)
                                             new_rows.append([yesterday.strftime('%Y-%m-%d'), '支出', suggested_cat, amount, def_pool, memo])
                                             sync_count += 1
