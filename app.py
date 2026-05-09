@@ -357,9 +357,8 @@ with tabs[5]:
 
     st.markdown("---")
     st.subheader("📡 財政部載具 API 設定區")
-    st.info("💡 戰術情報：2023年後財政部已修改規定，不再開放「個人」申請專屬 API (AppID)，僅限公司行號申請。因此，身為獨立開發者，我們將改用開源社群共用的 AppID 來進行串接，你只需要填入你的手機條碼與驗證碼即可！")
+    st.write("請輸入您的載具條碼與驗證碼，系統會自動使用內建的共用 API 進行串接。")
     
-    # 依照你的指示更新按鈕名稱
     link_c1, link_c2 = st.columns(2)
     with link_c1:
         st.link_button("🔗 忘記驗證碼？前往重設", "https://www.einvoice.nat.gov.tw/accounts/forgot/password/mw")
@@ -369,6 +368,5 @@ with tabs[5]:
     with st.container(border=True):
         st.text_input("手機條碼 (CardNo)", placeholder="/XXXXXXX")
         st.text_input("驗證碼 (CardEncrypt)", type="password")
-        st.text_input("API AppID (系統預設共用金鑰)", value="EINV2023_Shared_Key_Placeholder", type="password", help="由於不再開放個人申請，此處預留給開源共用的 AppID")
         if st.button("🔒 儲存金鑰 (暫不啟動)"):
             st.toast("金鑰已記錄，待工作流串接後啟動。", icon="🔧")
