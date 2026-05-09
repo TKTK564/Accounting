@@ -9,54 +9,51 @@ import time
 import calendar
 
 # --- 1. APP 質感與圖示設定 (核心品牌化區塊) ---
-# st.set_page_config 必須是第一個呼叫的 Streamlit 指令
 st.set_page_config(page_title="個人財務戰情系統", layout="wide")
 
 # 你的 GitHub 圖片原始連結
 ICON_URL = "https://raw.githubusercontent.com/TKTK564/Accounting/refs/heads/main/ChatGPT%20Image%202026%E5%B9%B45%E6%9C%889%E6%97%A5%20%E4%B8%8B%E5%8D%8812_14_52.png"
 
+# 注意：這裡的內容必須全部靠左對齊，不能有縮進
 st.markdown(f"""
-    <head>
-        <!-- iOS 圖示設定 (加入主畫面) -->
-        <link rel="apple-touch-icon" href="{ICON_URL}">
-        <!-- Android / Chrome 圖示設定 -->
-        <link rel="icon" sizes="192x192" href="{ICON_URL}">
-        <link rel="icon" sizes="512x512" href="{ICON_URL}">
-    </head>
-    <style>
-    /* 這裡的 CSS 括號必須全部維持雙層 {{ }} */
-    header {{visibility: hidden;}}
-    footer {{visibility: hidden;}}
-    #MainMenu {{visibility: hidden;}}
-    
-    .block-container {{
-        padding-top: 1.5rem;
-        padding-bottom: 0rem;
-        padding-left: 1.5rem;
-        padding-right: 1.5rem;
-    }}
+<head>
+<link rel="apple-touch-icon" href="{ICON_URL}">
+<link rel="icon" sizes="192x192" href="{ICON_URL}">
+<link rel="icon" sizes="512x512" href="{ICON_URL}">
+</head>
+<style>
+header {{visibility: hidden;}}
+footer {{visibility: hidden;}}
+#MainMenu {{visibility: hidden;}}
 
-    .stTabs [data-baseweb="tab-list"] {{ 
-        gap: 10px; 
-    }}
-    
-    .stTabs [data-baseweb="tab"] {{ 
-        height: 45px; 
-        background-color: #f1f3f5; 
-        color: #495057; 
-        border-radius: 10px; 
-        padding: 10px 15px; 
-        border: none;
-    }}
-    
-    .stTabs [aria-selected="true"] {{ 
-        background-color: #007bff !important; 
-        color: white !important; 
-        font-weight: bold; 
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-    }}
-    </style>
-    """, unsafe_allow_html=True)
+.block-container {{
+    padding-top: 1.5rem;
+    padding-bottom: 0rem;
+    padding-left: 1.5rem;
+    padding-right: 1.5rem;
+}}
+
+.stTabs [data-baseweb="tab-list"] {{ 
+    gap: 10px; 
+}}
+
+.stTabs [data-baseweb="tab"] {{ 
+    height: 45px; 
+    background-color: #f1f3f5; 
+    color: #495057; 
+    border-radius: 10px; 
+    padding: 10px 15px; 
+    border: none;
+}}
+
+.stTabs [aria-selected="true"] {{ 
+    background-color: #007bff !important; 
+    color: white !important; 
+    font-weight: bold; 
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+}}
+</style>
+""", unsafe_allow_html=True)
 
 # --- 2. 雲端連線 ---
 try:
