@@ -12,7 +12,7 @@ import calendar
 st.set_page_config(page_title="個人財務紀錄", layout="wide")
 
 # 你的 GitHub 圖片原始連結
-ICON_URL = "https://raw.githubusercontent.com/TKTK564/Accounting/refs/heads/main/ChatGPT%20Image%202026%E5%B9%B45%E6%9C%889%E6%97%A5%20%E4%B8%8B%E5%8D%8812_14_52.png"
+ICON_URL = "https://raw.githubusercontent.com/TKTK564/Accounting/refs/heads/main/logo.png"
 
 # 注意：為了防止 Markdown 誤判為代碼塊，這裡的所有 HTML 內容必須「絕對頂格靠左」
 st.markdown(f"""
