@@ -8,18 +8,31 @@ from datetime import datetime
 import time
 import calendar
 
-# --- 1. 介面與主題設定 ---
+# --- 1. APP 質感與介面設定 (st.set_page_config 只能出現一次且必須在最頂部) ---
 st.set_page_config(page_title="個人財務戰情系統", layout="wide")
+
 st.markdown("""
     <style>
-    #MainMenu {visibility: hidden;}
+    /* 隱藏頂部裝飾線與選單 */
+    header {visibility: hidden;}
     footer {visibility: hidden;}
+    #MainMenu {visibility: hidden;}
+    
+    /* 移除多餘的網頁邊距，讓它更像 APP 介面 */
+    .block-container {
+        padding-top: 1.5rem;
+        padding-bottom: 0rem;
+        padding-left: 1.5rem;
+        padding-right: 1.5rem;
+    }
+
+    /* Tab 選項標籤美化 */
     .stTabs [data-baseweb="tab-list"] { gap: 10px; }
     .stTabs [data-baseweb="tab"] { 
-        height: 50px; background-color: #ced4da; color: #343a40; border-radius: 5px; padding: 10px 20px; border: 1px solid #adb5bd;
+        height: 45px; background-color: #f1f3f5; color: #495057; border-radius: 10px; padding: 10px 15px; border: none;
     }
     .stTabs [aria-selected="true"] { 
-        background-color: #007bff !important; color: white !important; font-weight: bold;
+        background-color: #007bff !important; color: white !important; font-weight: bold; box-shadow: 0 4px 6px rgba(0,0,0,0.1);
     }
     </style>
     """, unsafe_allow_html=True)
@@ -31,10 +44,11 @@ try:
     sh = gc.open('專屬財務戰情資料庫')
     users_sheet = sh.worksheet('使用者名冊')
     
+    # 維持資料庫結構檢查
     headers = users_sheet.row_values(1)
     while len(headers) < 4: headers.append("")
-    if headers[0] != "Username" or headers[2] != "CardNo":
-        users_sheet.update('A1:D1', [["Username", "Password", "CardNo", "CardEncrypt"]])
+    if headers[0] != "Username":
+        users_sheet.update('A1:B1', [["Username", "Password"]])
 except Exception as e:
     st.error(f"❌ 雲端連線失敗：{e}"); st.stop()
 
@@ -99,6 +113,7 @@ with colA: st.title(f"🛠️ {st.session_state.username} 的財務戰略中心"
 with colB: 
     if st.button("登出 👋"): st.session_state.logged_in = False; st.rerun()
 
+# 調整 Tab 順序：現金流移動到數據管理前方
 tabs = st.tabs(["📥 收入分配", "💸 支出與載具同步", "🔄 自動扣款", "📊 現金流", "📁 數據管理", "⚙️ 設定中心"])
 
 # ------------------------------------------
@@ -162,7 +177,7 @@ with tabs[1]:
         tab_email, tab_csv = st.tabs(["📧 方案 A: E-mail 全自動管線", "📥 方案 B: CSV 實體空投"])
         with tab_email:
             st.info("💡 戰術設定：讓財政部主動把消費明細寄到信箱。")
-            st.link_button("👉 前往開啟 E-mail 消費明細通知(請先登入再開啟哦~或是重新點擊即可!)", "https://www.einvoice.nat.gov.tw/portal/btc/mobile/btc513w/main")
+            st.link_button("👉 前往開啟 E-mail 消費明細通知", "https://www.einvoice.nat.gov.tw/portal/btc/mobile/btc513w/main")
         with tab_csv:
             st.write("直接拖曳財政部 CSV 檔，啟動 AI 分類記憶引擎！")
             uploaded_file = st.file_uploader("📥 拖曳 CSV 檔至此", type=["csv"], key="csv_uploader")
@@ -223,32 +238,34 @@ with tabs[2]:
             if n and a > 0: rec_ws.append_row([n, a, p_auto, cat_auto, "1", "每月"]); st.toast("✅ 儲存成功！"); st.rerun()
 
 # ------------------------------------------
-# 【Tab 4：現金流】 (每月現金流流向升級)
+# 【Tab 4：現金流】 (垂直排列與 X 軸優化)
 # ------------------------------------------
 with tabs[3]:
     if df.empty:
         st.info("尚無數據，請先開始記帳。")
     else:
+        # 計算總體數據
         total_in_all = df[df['類型'] == '收入']['金額'].sum()
         total_ex_all = df[df['類型'] == '支出']['金額'].sum()
         current_assets = total_in_all - total_ex_all
         
+        # 月份選擇
         available_months = sorted(df['年月'].unique(), reverse=True)
         selected_month = st.selectbox("📅 選擇觀測月份：", available_months, key="dash_month_select")
         m_df = df[df['年月'] == selected_month].copy()
         m_in = m_df[m_df['類型'] == '收入']['金額'].sum()
         m_ex = m_df[m_df['類型'] == '支出']['金額'].sum()
 
-        st.markdown("---")
-        # 1. 實質總資產 與 每月現金流流向
+        st.markdown("### 📊 財務健康監控")
+        
+        # 1. 實質總資產 (垂直)
         st.metric("💰 實質總資產 (全期結餘)", f"${current_assets:,.0f}")
         
-        # 計算每月盈餘趨勢
+        # 每月現金流流向直方圖
         monthly_delta = df.groupby('年月').apply(lambda x: x[x['類型']=='收入']['金額'].sum() - x[x['類型']=='支出']['金額'].sum()).reset_index()
         monthly_delta.columns = ['年月', '月盈餘']
         monthly_delta['累計資產'] = monthly_delta['月盈餘'].cumsum()
-        
-        # 優化 X 軸標籤格式：月份 (年份)
+        # X 軸標籤格式化為：05 (2026)
         monthly_delta['顯示標籤'] = pd.to_datetime(monthly_delta['年月']).dt.strftime('%m (%Y)')
         
         fig_assets = px.bar(monthly_delta, x='顯示標籤', y='累計資產', title="每月現金流流向", 
@@ -257,28 +274,32 @@ with tabs[3]:
         st.plotly_chart(fig_assets, use_container_width=True)
         
         st.markdown("---")
-        # 2. 月份總收入 (綠色系圓餅圖)
+        
+        # 2. 月份總收入 (垂直)
         st.metric(f"📈 {selected_month} 總收入", f"${m_in:,.0f}")
         inc_df = m_df[m_df['類型'] == '收入']
         if not inc_df.empty:
             fig_inc = px.pie(inc_df, values='金額', names='備註', hole=0.4, title="收入來源比例", 
-                            color_discrete_sequence=px.colors.sequential.Greens_r)
+                            color_discrete_sequence=px.colors.sequential.Greens_r) # 綠色系
             st.plotly_chart(fig_inc, use_container_width=True)
         else: st.info("該月尚無收入。")
 
         st.markdown("---")
-        # 3. 月份總支出 (紅色系圓餅圖)
+        
+        # 3. 月份總支出 (垂直)
         st.metric(f"📉 {selected_month} 總支出", f"${m_ex:,.0f}")
         exp_df = m_df[m_df['類型'] == '支出']
         if not exp_df.empty:
             fig_exp = px.pie(exp_df, values='金額', names='類別', hole=0.4, title="支出分佈比例", 
-                            color_discrete_sequence=px.colors.sequential.OrRd_r)
+                            color_discrete_sequence=px.colors.sequential.Reds_r) # 紅色系
             st.plotly_chart(fig_exp, use_container_width=True)
         else: st.info("該月尚無支出。")
 
         st.markdown("---")
-        # 4. 監控模式 (更名並優化數據互動)
+        
+        # 4. 監控模式
         mode = st.radio("監控模式：", ["📉 每日收入與花費", "🎯 預算上限監控"], horizontal=True, key="dash_mode_radio")
+        
         if mode == "📉 每日收入與花費":
             y, m = map(int, selected_month.split('-'))
             last_day = calendar.monthrange(y, m)[1]
@@ -288,11 +309,16 @@ with tabs[3]:
             plot_df = pd.DataFrame(index=full_dates).fillna(0)
             plot_df['收入'] = daily_in; plot_df['支出'] = daily_ex
             plot_df = plot_df.fillna(0).reset_index().rename(columns={'index': '日期'})
+            
             fig = go.Figure()
-            fig.add_trace(go.Bar(x=plot_df['日期'], y=plot_df['收入'], name='每日收入', marker_color='#28a745', text=plot_df['收入'].apply(lambda x: f"+{int(x)}" if x > 0 else ""), textposition='outside'))
-            fig.add_trace(go.Bar(x=plot_df['日期'], y=-plot_df['支出'], name='每日支出', marker_color='#dc3545', customdata=plot_df['支出'], text=plot_df['支出'].apply(lambda x: f"-{int(x)}" if x > 0 else ""), textposition='outside', hovertemplate='支出: -%{customdata:,.0f}<extra></extra>'))
+            fig.add_trace(go.Bar(x=plot_df['日期'], y=plot_df['收入'], name='每日收入', marker_color='#28a745', 
+                                text=plot_df['收入'].apply(lambda x: f"+{int(x)}" if x > 0 else ""), textposition='outside'))
+            fig.add_trace(go.Bar(x=plot_df['日期'], y=-plot_df['支出'], name='每日支出', marker_color='#dc3545', 
+                                customdata=plot_df['支出'], text=plot_df['支出'].apply(lambda x: f"-{int(x)}" if x > 0 else ""), 
+                                textposition='outside', hovertemplate='支出: -%{customdata:,.0f}<extra></extra>'))
             fig.update_layout(title=f"📊 {selected_month} 每日明細", barmode='relative', xaxis=dict(type='date', tickformat='%d'))
             st.plotly_chart(fig, use_container_width=True)
+            
         elif mode == "🎯 預算上限監控":
             config_df = pd.DataFrame(st.session_state.pool_configs)
             real_ex = df[df['類型'] == '支出'].groupby('帳戶')['金額'].sum().reset_index().rename(columns={'帳戶': '池名', '金額': '實際支出'})
@@ -318,7 +344,7 @@ with tabs[4]:
             worksheet.append_rows(save_df.values.tolist()); st.toast("✅ 同步成功"); st.rerun()
 
 # ------------------------------------------
-# 【Tab 6：設定中心】 (徹底清理載具金鑰)
+# 【Tab 6：設定中心】 (精簡版)
 # ------------------------------------------
 with tabs[5]:
     st.header("⚙️ 系統核心設定")
