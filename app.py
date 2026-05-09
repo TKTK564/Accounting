@@ -6,6 +6,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime
 import time
+import calendar  
 
 # --- 1. 介面與主題設定 ---
 st.set_page_config(page_title="個人財務戰情系統", layout="wide")
