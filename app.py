@@ -9,9 +9,10 @@ import time
 import calendar
 
 # --- 1. APP 質感與圖示設定 (核心品牌化區塊) ---
+# st.set_page_config 必須是第一個呼叫的 Streamlit 指令
 st.set_page_config(page_title="個人財務戰情系統", layout="wide")
 
-# ⚠️ 請在此處貼上你從 GitHub 取得的圖片「原始連結」
+# 你的 GitHub 圖片原始連結
 ICON_URL = "https://raw.githubusercontent.com/TKTK564/Accounting/refs/heads/main/ChatGPT%20Image%202026%E5%B9%B45%E6%9C%889%E6%97%A5%20%E4%B8%8B%E5%8D%8812_14_52.png"
 
 st.markdown(f"""
@@ -23,12 +24,11 @@ st.markdown(f"""
         <link rel="icon" sizes="512x512" href="{ICON_URL}">
     </head>
     <style>
-    /* 隱藏頂部裝飾線與選單 */
+    /* 這裡的 CSS 括號必須全部維持雙層 {{ }} */
     header {{visibility: hidden;}}
     footer {{visibility: hidden;}}
     #MainMenu {{visibility: hidden;}}
-
-    /* 移除多餘邊距，強化 APP 沉浸感 */
+    
     .block-container {{
         padding-top: 1.5rem;
         padding-bottom: 0rem;
@@ -36,13 +36,24 @@ st.markdown(f"""
         padding-right: 1.5rem;
     }}
 
-    /* Tab 選項標籤美化 */
-    .stTabs [data-baseweb="tab-list"] {{ gap: 10px; }}
+    .stTabs [data-baseweb="tab-list"] {{ 
+        gap: 10px; 
+    }}
+    
     .stTabs [data-baseweb="tab"] {{ 
-        height: 45px; background-color: #f1f3f5; color: #495057; border-radius: 10px; padding: 10px 15px; border: none;
-    }
+        height: 45px; 
+        background-color: #f1f3f5; 
+        color: #495057; 
+        border-radius: 10px; 
+        padding: 10px 15px; 
+        border: none;
+    }}
+    
     .stTabs [aria-selected="true"] {{ 
-        background-color: #007bff !important; color: white !important; font-weight: bold; box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        background-color: #007bff !important; 
+        color: white !important; 
+        font-weight: bold; 
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
     }}
     </style>
     """, unsafe_allow_html=True)
