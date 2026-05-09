@@ -162,7 +162,7 @@ with tabs[1]:
         tab_email, tab_csv = st.tabs(["📧 方案 A: E-mail 全自動管線", "📥 方案 B: CSV 實體空投"])
         with tab_email:
             st.info("💡 戰術設定：讓財政部主動把消費明細寄到信箱。")
-            st.link_button("👉 前往開啟 E-mail 消費明細通知", "https://www.einvoice.nat.gov.tw/portal/btc/mobile/btc513w/main")
+            st.link_button("👉 前往開啟 E-mail 消費明細通知(請先登入再開啟哦~或是重新點擊即可!)", "https://www.einvoice.nat.gov.tw/portal/btc/mobile/btc513w/main")
         with tab_csv:
             st.write("直接拖曳財政部 CSV 檔，啟動 AI 分類記憶引擎！")
             uploaded_file = st.file_uploader("📥 拖曳 CSV 檔至此", type=["csv"], key="csv_uploader")
