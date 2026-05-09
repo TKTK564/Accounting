@@ -4,8 +4,7 @@ import json
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from datetime import datetime, timedelta
-import calendar
+from datetime import datetime
 import time
 
 # --- 1. 介面與主題設定 ---
@@ -107,7 +106,7 @@ with colB:
 tabs = st.tabs(["📊 戰情看板", "📥 收入分配", "💸 支出與載具同步", "🔄 自動扣款", "📁 數據管理", "⚙️ 設定中心"])
 
 # ------------------------------------------
-# 【Tab 1：戰情看板】 (維持不變)
+# 【Tab 1：戰情看板】
 # ------------------------------------------
 with tabs[0]:
     if df.empty:
@@ -163,7 +162,7 @@ with tabs[0]:
             fig.update_layout(barmode='overlay'); st.plotly_chart(fig, use_container_width=True)
 
 # ------------------------------------------
-# 【Tab 2：收入金錢分配】 (維持不變)
+# 【Tab 2：收入金錢分配】
 # ------------------------------------------
 with tabs[1]:
     st.header("📥 收入金錢分配")
@@ -187,13 +186,12 @@ with tabs[1]:
     elif i_val > 0: st.warning(f"分配總額 (${total_alloc}) 與進帳 (${i_val}) 不符")
 
 # ------------------------------------------
-# 【Tab 3：支出登錄與載具同步 (分離架構更新)】
+# 【Tab 3：支出登錄與載具同步 (E-mail 雙核引擎)】
 # ------------------------------------------
 with tabs[2]:
     st.header("💸 支出登錄與載具同步")
     col_man, col_auto = st.columns([1, 1])
     
-    # 歷史分類引擎 (保留給 CSV 備案使用)
     def get_item_category(item_desc, history_df, current_cats):
         if not history_df.empty:
             match = history_df[history_df['備註'].str.endswith(f"- {item_desc}", na=False)]
@@ -221,21 +219,23 @@ with tabs[2]:
         st.subheader("📡 載具同步中樞")
         def_pool = st.selectbox("發票預設扣款池", [p['池名'] for p in st.session_state.pool_configs], key="auto_p")
         
-        tab_api, tab_csv = st.tabs(["🤖 本機特務模式", "📥 備用: CSV 實體空投"])
+        tab_email, tab_csv = st.tabs(["📧 方案 A: E-mail 全自動管線", "📥 方案 B: CSV 實體空投"])
         
-        with tab_api:
-            st.info("💡 **架構升級提示**：為規避政府對海外雲端的 IP 封鎖，API 自動同步任務已轉交給 **「本機特務 (Local Agent)」**。")
+        with tab_email:
+            st.info("💡 **終極破局戰略**：讓財政部每個月主動把消費明細寄到信箱，搭配 n8n 自動攔截解析寫入！")
             st.markdown("""
-            **如何啟動自動同步？**
-            1. 在您的個人電腦上執行 `sync_agent.py`。
-            2. 特務會自動使用台灣 IP 繞過封鎖，讀取您的金鑰。
-            3. 發票解析完成後，戰情看板數據會自動更新！
+            **如何啟動？**
+            1. 點擊下方按鈕前往財政部「通知設定」。
+            2. 勾選 **「寄送消費資訊」** (設定為每月寄送)。
+            3. n8n 接收到 Email 後，會全自動呼叫戰情中心的 AI 記憶引擎進行分類入帳！
             """)
-        
+            st.link_button("👉 發票 E-mail 通知開啟 (每月寄送)", "https://www.einvoice.nat.gov.tw/portal/btc/mobile/btc513w/main")
+            
         with tab_csv:
-            st.write("若不便執行本機程式，可拖曳財政部 CSV 檔至此，系統同樣具備 AI 分類記憶功能！")
-            st.link_button("👉 前往財政部下載 CSV", "https://www.einvoice.nat.gov.tw/APCONSUMER/BTC501W/")
-            uploaded_file = st.file_uploader("📥 拖曳 CSV 檔至此", type=["csv"])
+            st.write("如果想即時結算，也可以直接拖曳財政部 CSV 檔至此，系統會啟動 AI 分類記憶引擎幫你秒殺入帳！")
+            st.link_button("👉 前往財政部下載 CSV (點選 發票查詢及捐贈)", "https://www.einvoice.nat.gov.tw/APCONSUMER/BTC501W/")
+            
+            uploaded_file = st.file_uploader("📥 拖曳財政部 CSV 檔至此", type=["csv"])
             if uploaded_file is not None:
                 if st.button("⚙️ 解析並匯入 CSV"):
                     try:
@@ -273,7 +273,7 @@ with tabs[2]:
                     except Exception as e: st.error(f"❌ 解析失敗：{e}")
 
 # ------------------------------------------
-# 【Tab 4：自動扣款】 (維持不變)
+# 【Tab 4：自動扣款】
 # ------------------------------------------
 with tabs[3]:
     st.header("🔄 定期自動扣款系統")
@@ -341,7 +341,7 @@ with tabs[3]:
                 st.toast("✅ 規則已儲存！", icon="📝"); st.rerun()
 
 # ------------------------------------------
-# 【Tab 5：數據管理】 (維持不變)
+# 【Tab 5：數據管理】
 # ------------------------------------------
 with tabs[4]:
     st.header("📁 數據管理 (分類記憶訓練所)")
@@ -385,25 +385,6 @@ with tabs[5]:
         if st.button("➕ 新增項"): st.session_state.expense_cats.append(ne); st.toast("✅ 類別新增成功！", icon="🏷️"); st.rerun()
 
     st.markdown("---")
-    st.subheader("📡 財政部載具金鑰綁定")
-    st.write("輸入條碼與密碼，本機特務會在背景自動為您切換公用金鑰池進行破門。")
-    st.link_button("🔗 忘記驗證碼？前往重設", "https://www.einvoice.nat.gov.tw/accounts/forgot/password/mw")
-
-    with st.container(border=True):
-        c_no = st.text_input("手機條碼 (CardNo)", value=st.session_state.card_no, placeholder="/XXXXXXX")
-        c_pw = st.text_input("驗證碼 (CardEncrypt)", value=st.session_state.card_encrypt, type="password")
-        
-        if st.button("🔒 綁定金鑰至我的帳號"):
-            if c_no and c_pw:
-                recs = users_sheet.get_all_records()
-                for idx, r in enumerate(recs):
-                    if str(r.get("Username")).strip() == st.session_state.username:
-                        row_number = idx + 2
-                        users_sheet.update_cell(row_number, 3, c_no)
-                        users_sheet.update_cell(row_number, 4, c_pw)
-                        st.session_state.card_no = c_no
-                        st.session_state.card_encrypt = c_pw
-                        st.toast("✅ 條碼已永久綁定！本機特務現在可以讀取金鑰了。", icon="🗝️")
-                        break
-            else:
-                st.error("請輸入完整的條碼與驗證碼！")
+    st.subheader("📧 財政部 E-mail 訂閱設定")
+    st.write("點擊下方按鈕前往財政部開啟每月消費明細寄送，配合信箱自動化攔截網進行無感記帳！")
+    st.link_button("👉 前往開啟 E-mail 消費明細通知", "https://www.einvoice.nat.gov.tw/portal/btc/mobile/btc513w/main")
