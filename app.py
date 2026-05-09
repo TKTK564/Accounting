@@ -38,7 +38,11 @@ except Exception as e:
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
     st.session_state.username = ""
+
+# 【防彈升級】獨立初始化金鑰記憶體，避免系統熱更新時遺失變數
+if 'card_no' not in st.session_state:
     st.session_state.card_no = ""
+if 'card_encrypt' not in st.session_state:
     st.session_state.card_encrypt = ""
 
 if 'pool_configs' not in st.session_state:
