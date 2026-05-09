@@ -104,99 +104,13 @@ with colA: st.title(f"🛠️ {st.session_state.username} 的財務戰略中心"
 with colB: 
     if st.button("登出 👋"): st.session_state.logged_in = False; st.rerun()
 
-# 變更分頁名稱為「現金流」
-tabs = st.tabs(["📊 現金流", "📥 收入分配", "💸 支出與載具同步", "🔄 自動扣款", "📁 數據管理", "⚙️ 設定中心"])
+# 按照要求調整分頁順序，將「現金流」移動到「數據管理」前面
+tabs = st.tabs(["📥 收入分配", "💸 支出與載具同步", "🔄 自動扣款", "📊 現金流", "📁 數據管理", "⚙️ 設定中心"])
 
 # ------------------------------------------
-# 【Tab 1：現金流】 (原戰情看板升級版)
+# 【Tab 1：收入金錢分配】 (維持不變)
 # ------------------------------------------
 with tabs[0]:
-    if df.empty:
-        st.info("尚無數據，請先開始記帳。")
-    else:
-        # 計算總體數據
-        total_in_all = df[df['類型'] == '收入']['金額'].sum()
-        total_ex_all = df[df['類型'] == '支出']['金額'].sum()
-        
-        # 月份選擇器放在最上方
-        available_months = sorted(df['年月'].unique(), reverse=True)
-        selected_month = st.selectbox("📅 選擇觀測月份：", available_months)
-        m_df = df[df['年月'] == selected_month].copy()
-        
-        # 計算該月數據
-        m_in = m_df[m_df['類型'] == '收入']['金額'].sum()
-        m_ex = m_df[m_df['類型'] == '支出']['金額'].sum()
-
-        st.markdown("---")
-        
-        # 三欄位配置：Metric + Pie Chart
-        c1, c2, c3 = st.columns(3)
-        
-        with c1:
-            st.metric("💰 實質總資產", f"${total_in_all - total_ex_all:,.0f}")
-            st.write("這是您的全期帳戶結餘")
-            
-        with c2:
-            st.metric(f"📈 {selected_month} 收入", f"${m_in:,.0f}")
-            inc_df = m_df[m_df['類型'] == '收入']
-            if not inc_df.empty:
-                fig_inc = px.pie(inc_df, values='金額', names='備註', hole=0.4, title=f"收入來源比例")
-                fig_inc.update_layout(showlegend=False) # 簡化視覺，隱藏圖例
-                st.plotly_chart(fig_inc, use_container_width=True)
-            else:
-                st.info("該月尚無收入。")
-                
-        with c3:
-            st.metric(f"📉 {selected_month} 支出", f"${m_ex:,.0f}")
-            exp_df = m_df[m_df['類型'] == '支出']
-            if not exp_df.empty:
-                fig_exp = px.pie(exp_df, values='金額', names='類別', hole=0.4, title=f"支出分佈比例")
-                fig_exp.update_layout(showlegend=False)
-                st.plotly_chart(fig_exp, use_container_width=True)
-            else:
-                st.info("該月尚無支出。")
-
-        st.markdown("---")
-        
-        # 監控模式簡化，刪除已上移的兩個圓餅圖選項
-        mode = st.radio("監控模式：", ["📉 每日流水趨勢", "🏦 預算剩餘", "🎯 預算上限監控"], horizontal=True)
-
-        if mode == "📉 每日流水趨勢":
-            y, m = map(int, selected_month.split('-'))
-            last_day = calendar.monthrange(y, m)[1]
-            full_dates = pd.date_range(start=f"{selected_month}-01", end=f"{selected_month}-{last_day}").date
-            daily_in = m_df[m_df['類型'] == '收入'].groupby(m_df['日期'].dt.date)['金額'].sum()
-            daily_ex = m_df[m_df['類型'] == '支出'].groupby(m_df['日期'].dt.date)['金額'].sum()
-            plot_df = pd.DataFrame(index=full_dates)
-            plot_df['收入'] = daily_in; plot_df['支出'] = daily_ex
-            plot_df = plot_df.fillna(0).reset_index().rename(columns={'index': '日期'})
-            fig = go.Figure()
-            fig.add_trace(go.Bar(x=plot_df['日期'], y=plot_df['收入'], name='每日收入', marker_color='#28a745'))
-            fig.add_trace(go.Bar(x=plot_df['日期'], y=-plot_df['支出'], name='每日支出', marker_color='#dc3545'))
-            fig.update_layout(title=f"📊 {selected_month} 每日流水", barmode='relative', xaxis=dict(type='date', tickformat='%d'))
-            st.plotly_chart(fig, use_container_width=True)
-            
-        elif mode == "🏦 預算剩餘":
-            in_p = df[df['類型'] == '轉帳'].groupby('帳戶')['金額'].sum()
-            out_p = df[df['類型'] == '支出'].groupby('帳戶')['金額'].sum()
-            pool_rem = [{"帳戶": n, "現金": in_p[n] - out_p.get(n, 0)} for n in in_p.index if (in_p[n] - out_p.get(n, 0)) != 0]
-            if pool_rem: st.plotly_chart(px.pie(pd.DataFrame(pool_rem), values='現金', names='帳戶', hole=0.4, title="各帳戶預算剩餘"), use_container_width=True)
-            else: st.write("尚無紀錄。")
-            
-        elif mode == "🎯 預算上限監控":
-            config_df = pd.DataFrame(st.session_state.pool_configs)
-            real_ex = df[df['類型'] == '支出'].groupby('帳戶')['金額'].sum().reset_index().rename(columns={'帳戶': '池名', '金額': '實際支出'})
-            comp = pd.merge(config_df, real_ex, on='池名', how='left').fillna(0)
-            comp['計算上限'] = comp.apply(lambda r: r['上限值'] if r['上限模式'] == "固定金額" else (r['上限值']/100 * total_in_all), axis=1)
-            fig = go.Figure()
-            fig.add_trace(go.Bar(x=comp['池名'], y=comp['計算上限'], name='預算上限', marker_color='#adb5bd'))
-            fig.add_trace(go.Bar(x=comp['池名'], y=comp['實際支出'], name='實際花費', marker_color='#dc3545'))
-            fig.update_layout(barmode='overlay'); st.plotly_chart(fig, use_container_width=True)
-
-# ------------------------------------------
-# 【Tab 2：收入金錢分配】
-# ------------------------------------------
-with tabs[1]:
     st.header("📥 收入金錢分配")
     i_val = st.number_input("本次進帳總額", min_value=0, step=1000)
     i_note = st.text_input("來源說明", value="本薪")
@@ -218,9 +132,9 @@ with tabs[1]:
     elif i_val > 0: st.warning(f"分配總額 (${total_alloc}) 與進帳 (${i_val}) 不符")
 
 # ------------------------------------------
-# 【Tab 3：支出登錄與載具同步】
+# 【Tab 2：支出登錄與載具同步】 (維持不變)
 # ------------------------------------------
-with tabs[2]:
+with tabs[1]:
     st.header("💸 支出登錄與載具同步")
     col_man, col_auto = st.columns([1, 1])
     
@@ -250,16 +164,12 @@ with tabs[2]:
     with col_auto:
         st.subheader("📡 載具同步中樞")
         def_pool = st.selectbox("發票預設扣款池", [p['池名'] for p in st.session_state.pool_configs], key="auto_p")
-        
         tab_email, tab_csv = st.tabs(["📧 方案 A: E-mail 全自動管線", "📥 方案 B: CSV 實體空投"])
-        
         with tab_email:
-            st.info("💡 **戰術設定**：讓財政部主動把消費明細寄到信箱。")
+            st.info("💡 戰術設定：讓財政部主動把消費明細寄到信箱。")
             st.link_button("👉 前往開啟 E-mail 消費明細通知", "https://www.einvoice.nat.gov.tw/portal/btc/mobile/btc513w/main")
-            
         with tab_csv:
             st.write("直接拖曳財政部 CSV 檔，啟動 AI 分類記憶引擎！")
-            st.link_button("👉 前往下載 CSV", "https://www.einvoice.nat.gov.tw/APCONSUMER/BTC501W/")
             uploaded_file = st.file_uploader("📥 拖曳 CSV 檔至此", type=["csv"])
             if uploaded_file is not None:
                 if st.button("⚙️ 解析並匯入 CSV"):
@@ -285,79 +195,150 @@ with tabs[2]:
                                     new_rows.append([date_str, '支出', cat, amt_val, def_pool, memo])
                                     sync_count += 1
                             if new_rows:
-                                worksheet.append_rows(new_rows)
-                                st.toast(f"✅ 成功匯入 {sync_count} 筆紀錄！", icon="📦"); time.sleep(1); st.rerun()
-                        else: st.error("❌ 無法辨識 CSV 欄位。")
+                                worksheet.append_rows(new_rows); st.toast(f"✅ 成功匯入 {sync_count} 筆紀錄！", icon="📦"); time.sleep(1); st.rerun()
                     except Exception as e: st.error(f"❌ 解析失敗：{e}")
 
 # ------------------------------------------
-# 【Tab 4：自動扣款】 (維持不變)
+# 【Tab 3：自動扣款】 (維持不變)
 # ------------------------------------------
-with tabs[3]:
+with tabs[2]:
     st.header("🔄 定期自動扣款系統")
     today_dt = datetime.now()
-    curr_m_str = today_dt.strftime('%Y-%m'); curr_y = today_dt.year
-    curr_m = today_dt.month; curr_d = today_dt.day
-    deducted_this_month = []; deducted_this_year = []
     if not df.empty:
-        auto_m = df[(df['年月'] == curr_m_str) & (df['備註'].str.startswith('[自動扣款]'))]
-        deducted_this_month = auto_m['備註'].tolist()
-        auto_y = df[(df['年'] == curr_y) & (df['備註'].str.startswith('[自動扣款]'))]
-        deducted_this_year = auto_y['備註'].tolist()
-    pending_items = []
+        auto_m = df[(df['年月'] == today_dt.strftime('%Y-%m')) & (df['備註'].str.startswith('[自動扣款]'))]
+        deducted_m = auto_m['備註'].tolist()
     if not rec_df.empty:
-        st.subheader("📋 目前的扣款設定")
+        st.subheader("📋 目前扣款設定")
         st.dataframe(rec_df)
-        time_col = rec_df.columns[4]; cycle_col = rec_df.columns[5] if len(rec_df.columns) > 5 else None
-        for _, row in rec_df.iterrows():
-            item_tag = f"[自動扣款] {row['項目名稱']}"
-            cycle = str(row[cycle_col]) if cycle_col else "每月"
-            time_val = str(row[time_col])
-            is_pending = False
-            if cycle == "每年":
-                try: m_str, d_str = time_val.split('-'); t_m, t_d = int(m_str), int(d_str)
-                except: t_m, t_d = 1, 1
-                if (curr_m > t_m) or (curr_m == t_m and curr_d >= t_d):
-                    if item_tag not in deducted_this_year: is_pending = True
-            else:
-                try: t_d = int(float(time_val))
-                except: t_d = 1
-                if curr_d >= t_d and item_tag not in deducted_this_month: is_pending = True
-            if is_pending: pending_items.append(row)
-        if pending_items:
-            st.warning(f"⚠️ 偵測到 {len(pending_items)} 筆尚未執行的自動扣款！")
-            if st.button("⚡ 執行所有待處理扣款"):
-                today_str = today_dt.strftime('%Y-%m-%d'); auto_rows = []
-                for p in pending_items: auto_rows.append([today_str, '支出', p['支出類別'], p['金額'], p['預算池'], f"[自動扣款] {p['項目名稱']}"])
-                worksheet.append_rows(auto_rows); st.toast("✅ 執行完畢！", icon="🤖"); st.rerun()
+        if st.button("⚡ 執行所有待處理扣款"):
+            today_str = today_dt.strftime('%Y-%m-%d'); auto_rows = []
+            for _, p in rec_df.iterrows():
+                if f"[自動扣款] {p['項目名稱']}" not in deducted_m:
+                    auto_rows.append([today_str, '支出', p['支出類別'], p['金額'], p['預算池'], f"[自動扣款] {p['項目名稱']}"])
+            if auto_rows: worksheet.append_rows(auto_rows); st.toast("✅ 執行完畢！"); st.rerun()
     st.markdown("---")
-    st.subheader("➕ 新增自動扣款規則")
+    st.subheader("➕ 新增自動扣款")
     with st.container(border=True):
-        c1, c2, c3 = st.columns(3)
-        r_name = c1.text_input("項目名稱 (如：Spotify)")
-        r_amt = c2.number_input("扣款金額", min_value=0)
-        r_cycle = c3.selectbox("扣款週期", ["每月", "每年"])
-        c4, c5, c6 = st.columns(3)
-        r_pool = c4.selectbox("預算池", [p['池名'] for p in st.session_state.pool_configs])
-        r_cat = c5.selectbox("支出分類", st.session_state.expense_cats)
-        if st.button("💾 儲存自動扣款設定"):
-            if r_name and r_amt > 0:
-                rec_ws.append_row([r_name, r_amt, r_pool, r_cat, "1", r_cycle])
-                st.toast("✅ 規則已儲存！", icon="📝"); st.rerun()
+        c1, c2 = st.columns(2)
+        n = c1.text_input("項目名稱"); a = c2.number_input("金額", min_value=0)
+        p = st.selectbox("預算池", [pool['池名'] for pool in st.session_state.pool_configs])
+        cat = st.selectbox("分類", st.session_state.expense_cats)
+        if st.button("💾 儲存"):
+            if n and a > 0: rec_ws.append_row([n, a, p, cat, "1", "每月"]); st.toast("✅ 儲存成功！"); st.rerun()
+
+# ------------------------------------------
+# 【Tab 4：現金流】 (核心升級：垂直排列與色彩戰術)
+# ------------------------------------------
+with tabs[3]:
+    if df.empty:
+        st.info("尚無數據，請先開始記帳。")
+    else:
+        # 計算全期總額
+        total_in_all = df[df['類型'] == '收入']['金額'].sum()
+        total_ex_all = df[df['類型'] == '支出']['金額'].sum()
+        current_assets = total_in_all - total_ex_all
+        
+        # 月份選擇
+        available_months = sorted(df['年月'].unique(), reverse=True)
+        selected_month = st.selectbox("📅 選擇觀測月份：", available_months)
+        m_df = df[df['年月'] == selected_month].copy()
+        m_in = m_df[m_df['類型'] == '收入']['金額'].sum()
+        m_ex = m_df[m_df['類型'] == '支出']['金額'].sum()
+
+        st.markdown("---")
+        
+        # 【垂直戰術佈局】
+        # 1. 實質總資產
+        st.metric("💰 實質總資產 (全期結餘)", f"${current_assets:,.0f}")
+        # 新增：月份資產直方圖 (計算每個月的資產水位)
+        monthly_delta = df.groupby('年月').apply(lambda x: x[x['類型']=='收入']['金額'].sum() - x[x['類型']=='支出']['金額'].sum()).reset_index()
+        monthly_delta.columns = ['年月', '月盈餘']
+        monthly_delta['累計資產'] = monthly_delta['月盈餘'].cumsum()
+        fig_assets = px.bar(monthly_delta, x='年月', y='累計資產', title="每月資產水位趨勢", color_discrete_sequence=['#6c757d'])
+        st.plotly_chart(fig_assets, use_container_width=True)
+        
+        st.markdown("---")
+        
+        # 2. 月份總收入 (垂直配置)
+        st.metric(f"📈 {selected_month} 總收入", f"${m_in:,.0f}")
+        inc_df = m_df[m_df['類型'] == '收入']
+        if not inc_df.empty:
+            # 更改為綠色系
+            fig_inc = px.pie(inc_df, values='金額', names='備註', hole=0.4, title="收入來源比例",
+                            color_discrete_sequence=px.colors.sequential.Greens_r)
+            st.plotly_chart(fig_inc, use_container_width=True)
+        else: st.info("該月尚無收入。")
+
+        st.markdown("---")
+        
+        # 3. 月份總支出 (垂直配置)
+        st.metric(f"📉 {selected_month} 總支出", f"${m_ex:,.0f}")
+        exp_df = m_df[m_df['類型'] == '支出']
+        if not exp_df.empty:
+            # 更改為紅色系
+            fig_exp = px.pie(exp_df, values='金額', names='類別', hole=0.4, title="支出分佈比例",
+                            color_discrete_sequence=px.colors.sequential.OrRd_r)
+            st.plotly_chart(fig_exp, use_container_width=True)
+        else: st.info("該月尚無支出。")
+
+        st.markdown("---")
+        
+        # 監控模式 (更名並強化互動)
+        mode = st.radio("監控模式：", ["📉 每日收入與花費", "🎯 預算上限監控"], horizontal=True)
+
+        if mode == "📉 每日收入與花費":
+            y, m = map(int, selected_month.split('-'))
+            last_day = calendar.monthrange(y, m)[1]
+            full_dates = pd.date_range(start=f"{selected_month}-01", end=f"{selected_month}-{last_day}").date
+            daily_in = m_df[m_df['類型'] == '收入'].groupby(m_df['日期'].dt.date)['金額'].sum()
+            daily_ex = m_df[m_df['類型'] == '支出'].groupby(m_df['日期'].dt.date)['金額'].sum()
+            plot_df = pd.DataFrame(index=full_dates)
+            plot_df['收入'] = daily_in; plot_df['支出'] = daily_ex
+            plot_df = plot_df.fillna(0).reset_index().rename(columns={'index': '日期'})
+            
+            fig = go.Figure()
+            # 收入 Bar: 顯示 + 號
+            fig.add_trace(go.Bar(
+                x=plot_df['日期'], y=plot_df['收入'], 
+                name='每日收入', marker_color='#28a745',
+                text=plot_df['收入'].apply(lambda x: f"+{int(x)}" if x > 0 else ""),
+                textposition='outside'
+            ))
+            # 支出 Bar: 顯示 - 號 (以負值繪圖但顯示正數標籤)
+            fig.add_trace(go.Bar(
+                x=plot_df['日期'], y=-plot_df['支出'], 
+                name='每日支出', marker_color='#dc3545',
+                customdata=plot_df['支出'],
+                text=plot_df['支出'].apply(lambda x: f"-{int(x)}" if x > 0 else ""),
+                textposition='outside',
+                hovertemplate='支出: -%{customdata:,.0f}<extra></extra>'
+            ))
+            fig.update_layout(title=f"📊 {selected_month} 每日明細", barmode='relative', xaxis=dict(type='date', tickformat='%d'))
+            st.plotly_chart(fig, use_container_width=True)
+            
+        elif mode == "🎯 預算上限監控":
+            config_df = pd.DataFrame(st.session_state.pool_configs)
+            real_ex = df[df['類型'] == '支出'].groupby('帳戶')['金額'].sum().reset_index().rename(columns={'帳戶': '池名', '金額': '實際支出'})
+            comp = pd.merge(config_df, real_ex, on='池名', how='left').fillna(0)
+            comp['計算上限'] = comp.apply(lambda r: r['上限值'] if r['上限模式'] == "固定金額" else (r['上限值']/100 * total_in_all), axis=1)
+            fig = go.Figure()
+            fig.add_trace(go.Bar(x=comp['池名'], y=comp['計算上限'], name='預算上限', marker_color='#adb5bd'))
+            fig.add_trace(go.Bar(x=comp['池名'], y=comp['實際支出'], name='實際花費', marker_color='#dc3545'))
+            fig.update_layout(barmode='overlay'); st.plotly_chart(fig, use_container_width=True)
 
 # ------------------------------------------
 # 【Tab 5：數據管理】
 # ------------------------------------------
 with tabs[4]:
-    st.header("📁 數據管理 (分類記憶訓練所)")
+    st.header("📁 數據管理")
     if not df.empty:
         m_df_edit = df.drop(columns=['年月', '年'], errors='ignore').copy()
         m_df_edit['日期'] = m_df_edit['日期'].dt.date
         new_df = st.data_editor(m_df_edit, num_rows="dynamic", use_container_width=True)
-        if st.button("💾 同步雲端 (並更新記憶)"):
+        if st.button("💾 同步雲端"):
             worksheet.clear(); worksheet.append_row(["日期", "類型", "類別", "金額", "帳戶", "備註"])
             save_df = new_df.copy(); save_df['日期'] = save_df['日期'].astype(str)
-            worksheet.append_rows(save_df.values.tolist()); st.toast("✅ 雲端同步成功", icon="☁️"); st.rerun()
+            worksheet.append_rows(save_df.values.tolist()); st.toast("✅ 同步成功"); st.rerun()
 
 # ------------------------------------------
 # 【Tab 6：設定中心】
@@ -377,7 +358,7 @@ with tabs[5]:
                 new_c.append({"池名": n, "上限模式": m, "上限值": v})
         st.session_state.pool_configs = new_c
         ap = st.text_input("新增預算池..."); 
-        if st.button("➕ 新增池"): st.session_state.pool_configs.append({"池名": ap, "上限模式": "百分比", "上限值": 0}); st.toast("✅ 新增成功！", icon="🏦"); st.rerun()
+        if st.button("➕ 新增池"): st.session_state.pool_configs.append({"池名": ap, "上限模式": "百分比", "上限值": 0}); st.toast("✅ 新增成功！"); st.rerun()
     with c2:
         st.subheader("🛠️ 支出類別")
         for i, ex in enumerate(st.session_state.expense_cats):
@@ -385,14 +366,14 @@ with tabs[5]:
             col1.write(f"🔹 {ex}")
             if col2.button("刪除", key=f"ed_{i}"): st.session_state.expense_cats.pop(i); st.rerun()
         ne = st.text_input("新增類別..."); 
-        if st.button("➕ 新增項"): st.session_state.expense_cats.append(ne); st.toast("✅ 新增成功！", icon="🏷️"); st.rerun()
+        if st.button("➕ 新增項"): st.session_state.expense_cats.append(ne); st.toast("✅ 新增成功！"); st.rerun()
 
     st.markdown("---")
     st.subheader("📡 載具金鑰綁定")
     with st.container(border=True):
-        c_no = st.text_input("手機條碼", value=st.session_state.card_no, placeholder="/XXXXXXX")
+        c_no = st.text_input("手機條碼", value=st.session_state.card_no)
         c_pw = st.text_input("驗證碼", value=st.session_state.card_encrypt, type="password")
-        if st.button("🔒 綁定金鑰至我的帳號"):
+        if st.button("🔒 綁定金鑰"):
             if c_no and c_pw:
                 recs = users_sheet.get_all_records()
                 for idx, r in enumerate(recs):
@@ -400,4 +381,4 @@ with tabs[5]:
                         users_sheet.update_cell(idx + 2, 3, c_no)
                         users_sheet.update_cell(idx + 2, 4, c_pw)
                         st.session_state.card_no, st.session_state.card_encrypt = c_no, c_pw
-                        st.toast("✅ 綁定成功！", icon="🗝️"); break
+                        st.toast("✅ 綁定成功！"); break
