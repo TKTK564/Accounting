@@ -29,15 +29,24 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. 雲端連線 ---
+# --- 2. 雲端連線與資料表防禦 ---
 try:
     credentials = json.loads(st.secrets["gcp_service_account_json"])
     gc = gspread.service_account_from_dict(credentials)
     sh = gc.open('專屬財務戰情資料庫')
     users_sheet = sh.worksheet('使用者名冊')
+    
+    # 【自動防禦機制】檢查並修復標題列，避免 get_all_records 報錯
+    headers = users_sheet.row_values(1)
+    # 補齊長度不足的空字串，以防 Index 報錯
+    while len(headers) < 4:
+        headers.append("")
+        
+    if headers[0] != "Username" or headers[2] != "CardNo":
+        users_sheet.update('A1:D1', [["Username", "Password", "CardNo", "CardEncrypt"]])
+        
 except Exception as e:
     st.error(f"❌ 雲端連線失敗：{e}"); st.stop()
-
 # --- 3. 初始化 Session State (防彈升級版) ---
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
